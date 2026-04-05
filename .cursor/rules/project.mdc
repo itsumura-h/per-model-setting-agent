@@ -1,0 +1,350 @@
+---
+alwaysApply: true
+---
+プロジェクトルール
+===
+
+## 0. 規範表現（RFC 2119）と Lint方針
+
+このドキュメントの規範キーワードは以下の意味で扱う：
+- **MUST**: 必須。違反はPRをブロックする
+- **SHOULD**: 強い推奨。違反は警告（許可する場合は理由を残す）
+- **MAY**: 任意（推奨策・選択肢）
+- **MUST NOT**: 禁止。違反はPRをブロックする
+
+Lint可能化のため、規範ルールは **Rule ID** を持つ。
+- 形式: `SYW-<DOMAIN>-<NNN>`（例: `SYW-UI-001`）
+- 併記: `[ID][LEVEL][CHECK]`
+  - LEVEL: MUST / SHOULD / MAY / MUST NOT
+  - CHECK:
+    - `grep`: 文字列パターンで検出可能
+    - `ast`: TypeScript AST解析が必要
+    - `config`: 設定ファイルの検査
+    - `manual`: 自動化困難（レビュー項目）
+
+本ドキュメント本文の記述と、「0.1 Lintルールカタログ（機械可読）」が矛盾した場合、
+**Lintルールカタログを優先**する（CIの単一の真実）。
+
+### 0.1.1 ルール一覧（要約）
+
+| ID | LEVEL | CHECK | 対象 | 要件（要約） |
+|---|---|---|---|---|
+| SYW-PROD-001 | MUST | manual | プロダクト | VSCode拡張としてAI Agentを操作できること |
+| SYW-AI-001 | MUST | manual | AI連携 | OpenAI SDKを介してモデル・エージェントを呼び出すこと |
+| SYW-PROV-001 | MUST | config | プロバイダー設定 | Providerに`name`と`baseUrl`と`apiKey`を設定できること |
+| SYW-PROV-002 | MUST | manual | UI | ドロップダウンでProviderを選択できること |
+| SYW-MODEL-001 | MUST | manual | UI | 選択Providerに対して`name`と`modelId`を設定できること |
+| SYW-UX-001 | MUST | manual | UX | エージェント実行状態・失敗理由・再試行導線を提供すること |
+| SYW-SEC-001 | MUST | manual | セキュリティ | APIキーなど秘匿情報を平文でソース管理しないこと |
+| SYW-EXT-001 | SHOULD | manual | 拡張性 | Provider追加時に既存UI/呼び出し層の変更を最小化すること |
+| SYW-CDX-001 | SHOULD | manual | 体験設計 | Codex/Cursor相当の操作体験を参考に必要機能を満たすこと |
+| SYW-PROV-003 | MUST | manual | 互換性 | `CometAPI` と `OpenRouter` をOpenAI互換Providerとして設定可能にすること |
+
+## 1. 目的・スコープ
+このプロジェクトでは、VSCode上からAI Agentを安全かつ拡張可能に呼び出せる拡張機能を構築する。
+
+達成目標は以下の通り。
+- OpenAI SDKを利用して、複数Provider配下のモデルを統一的に呼び出せること
+- `CometAPI` と `OpenRouter` をOpenAI互換Providerとして設定し、同一UIから切り替えて利用できること
+- ユーザーがUI上でProviderとModelを選択し、Agent実行に必要な設定を完結できること
+- 将来的にCodex系拡張やCursor系IDE体験に近いエージェント呼び出し機能を段階的に拡張できる土台を作ること
+
+スコープに含むもの：
+- VSCode拡張機能としての設定UI
+- Provider / Model定義
+- OpenAI SDKを使った推論・Agent呼び出し基盤
+- 会話、実行、状態表示、エラー処理の最小導線
+
+スコープに含まないもの：
+- 独自LLMサービング基盤の開発
+- IDE全体を置き換える大規模UI
+- Provider固有SDKへの密結合実装
+
+## 2. プロダクト要件
+
+### 2.1 必須要件
+
+#### [SYW-PROD-001][MUST][manual]
+拡張機能は、ユーザーがVSCode上でAI Agentを起動し、入力を渡し、結果を受け取れる最小機能を提供しなければならない。
+
+#### [SYW-AI-001][MUST][manual]
+AI連携はOpenAI SDKを介して行わなければならない。Provider差異はSDK初期化パラメータとアダプタ層で吸収する。
+
+#### [SYW-PROV-001][MUST][config]
+Provider設定は少なくとも以下の項目を持たなければならない。
+- `name`
+- `baseUrl`
+- `apiKey`
+
+推奨追加項目：
+- `headers`
+- `enabled`
+- `description`
+
+`apiKey` は入力可能でなければならないが、保存時はSecret Storage等の安全な保管先を利用すること。
+
+#### [SYW-PROV-002][MUST][manual]
+UIはProvider一覧をドロップダウンで提示し、現在の選択状態を常に明示しなければならない。
+
+#### [SYW-PROV-003][MUST][manual]
+初期目標として、少なくとも以下のProviderを設定可能にしなければならない。
+- `CometAPI`
+- `OpenRouter`
+
+各Providerは `name` `baseUrl` `apiKey` を設定でき、OpenAI SDK互換の呼び出し経路に接続できる設計にすること。
+
+Provider固有の初期値・前提は以下を基準とする。
+- `CometAPI`: 公式ドキュメントに基づき `https://api.cometapi.com/v1` を既定 `baseUrl` とする
+- `OpenRouter`: 公式ドキュメントに基づき `https://openrouter.ai/api/v1` を既定 `baseUrl` とする
+
+`OpenRouter` では必要に応じて `HTTP-Referer` や `X-Title` のような追加ヘッダーを設定可能にすること。
+
+#### [SYW-MODEL-001][MUST][manual]
+ユーザーは選択中Providerに対して以下を設定できなければならない。
+- モデル表示名 `name`
+- モデル識別子 `modelId`
+
+Model定義はProvider単位で管理し、誤って別ProviderのModelを紐づけない構造にすること。
+
+#### [SYW-UX-001][MUST][manual]
+Agent呼び出し体験には最低限以下を含めること。
+- 実行中表示
+- 成功結果の表示
+- エラー内容の表示
+- 再試行導線
+- 設定不備時のガイダンス
+
+#### [SYW-SEC-001][MUST][manual]
+APIキーやトークンはVSCode Secret Storage、環境変数、または同等の安全な保存手段を用いなければならない。リポジトリ内ファイルへ平文保存してはならない。
+
+### 2.2 推奨要件
+
+#### [SYW-EXT-001][SHOULD][manual]
+Provider追加は設定追加と軽微なアダプタ実装で完結する設計が望ましい。View層やAgent制御層へProvider条件分岐を散在させない。
+
+#### [SYW-CDX-001][SHOULD][manual]
+Codex拡張機能やCursorの体験を参考に、IDE統合・履歴・実行導線・コンテキスト管理を優先設計すること。
+
+## 3. 推奨アーキテクチャ
+
+責務は少なくとも以下に分離する。
+- `UI Layer`: Provider/Model選択、Agent起動、会話表示
+- `Configuration Layer`: Provider/Model/Secrets管理
+- `Agent Service Layer`: OpenAI SDK呼び出し、実行制御、再試行、ストリーミング
+- `Context Layer`: エディタ選択範囲、ワークスペース情報、履歴の収集
+- `Telemetry/Error Layer`: ログ、障害解析、ユーザー通知
+
+Providerごとの差異はAdapterまたはFactoryに閉じ込める。UIやコマンド実装に直接`baseUrl`やProviderごとの分岐を埋め込まないこと。
+
+## 4. データモデル要件
+
+### 4.1 Provider
+
+Providerは少なくとも以下の型を満たすこと。
+
+```ts
+type ProviderConfig = {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+};
+```
+
+拡張形の例：
+
+```ts
+type ProviderConfig = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  enabled?: boolean;
+  description?: string;
+  headers?: Record<string, string>;
+};
+```
+
+Providerプリセット例：
+
+```ts
+const providers: ProviderConfig[] = [
+  {
+    id: "cometapi",
+    name: "CometAPI",
+    baseUrl: "https://api.cometapi.com/v1",
+    apiKey: "",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKey: "",
+    headers: {
+      "HTTP-Referer": "",
+      "X-Title": "",
+    },
+  },
+];
+```
+
+### 4.2 Model
+
+Modelは選択中Providerに従属し、少なくとも以下を持つこと。
+
+```ts
+type ModelConfig = {
+  name: string;
+  modelId: string;
+};
+```
+
+拡張形の例：
+
+```ts
+type ProviderModelConfig = {
+  providerId: string;
+  name: string;
+  modelId: string;
+  supportsStreaming?: boolean;
+  supportsTools?: boolean;
+};
+```
+
+## 5. UI/UXルール
+
+### 5.1 設定導線
+- Provider選択はドロップダウンで行うこと
+- Provider選択変更時は、紐づくModel候補と設定状態を即座に更新すること
+- `name` と `modelId` は視認しやすく分離して表示すること
+- `apiKey` は入力または再設定できること
+- `apiKey` の表示はマスクし、未設定状態を識別できること
+- Providerプリセット選択時は、既定 `baseUrl` を自動入力できること
+- Providerが任意ヘッダーを必要とする場合、追加設定を入力できること
+
+### 5.2 実行導線
+- Agentの起動コマンドをコマンドパレットから実行できること
+- 将来的にサイドバーまたはWebviewからも起動できる設計にすること
+- 実行対象コンテキストを明示すること
+
+### 5.3 失敗時のふるまい
+- Provider未設定
+- APIキー未設定
+- `baseUrl`不正
+- `modelId`不正
+- ネットワーク失敗
+- Provider互換性不備
+- 必須ヘッダー不足
+
+上記は識別可能なエラーとして区別し、ユーザーに次アクションを示すこと。
+
+## 6. Codex/Cursorを踏まえた必要機能一覧
+
+エージェント呼び出し拡張機能には、少なくとも以下の機能群を計画対象として定義する。
+
+### 6.1 セッション管理
+- 会話セッションの開始、継続、終了
+- セッション履歴の一覧表示
+- 実行中セッションの状態保持
+- セッションごとのProvider/Model固定
+
+### 6.2 コンテキスト収集
+- アクティブファイルの内容送信
+- 選択範囲のみ送信
+- ワークスペース全体の参照対象選択
+- ユーザープロンプトへの追加コンテキスト注入
+
+### 6.3 Agent実行
+- 通常のチャット応答
+- ストリーミング応答
+- 長時間実行ジョブの状態表示
+- キャンセル
+- 再試行
+
+### 6.4 IDE統合
+- コマンドパレット起動
+- サイドバー表示
+- エディタ選択範囲からのクイック起動
+- 結果のコード適用導線
+- 差分確認導線
+
+### 6.5 ツール呼び出し
+- ファイル読み取り
+- ファイル編集提案
+- ターミナル実行提案
+- ワークスペース検索
+- ユーザー承認を伴う危険操作の抑止
+
+### 6.6 設定・拡張性
+- 複数Provider対応
+- `CometAPI` 対応
+- `OpenRouter` 対応
+- Providerごとの複数Model対応
+- ProviderごとのAPIキー管理
+- `baseUrl`差し替え
+- Providerごとの追加ヘッダー管理
+- Secret管理
+- 将来的なTool Use / MCP連携拡張
+
+### 6.7 透明性
+- どのProvider・Modelで実行したかの表示
+- 実行中であることの明示
+- エラー原因の可視化
+- 課金や制限に関わる注意表示
+
+### 6.8 安全性
+- 機密ファイルの送信前確認
+- 危険コマンドのユーザー確認
+- ワークスペース外アクセスの制御
+- ログへの秘匿情報混入防止
+
+## 7. 実装優先順位
+
+Phase 1:
+- Provider設定
+- ProviderごとのAPIキー設定
+- Model設定
+- ドロップダウンUI
+- `CometAPI` / `OpenRouter` のProvider登録
+- Provider既定値としての `baseUrl` 自動入力
+- OpenAI SDKによる基本チャット実行
+- エラー表示
+
+Phase 2:
+- ストリーミング
+- セッション履歴
+- エディタ選択範囲連携
+- 再試行とキャンセル
+
+Phase 3:
+- ツール呼び出し
+- 差分適用導線
+- 複数Agent体験
+- 監査ログ・テレメトリ整備
+
+## 8. 品質基準
+
+- Provider未設定時に実行不能であることをテストする
+- APIキー未設定時に保存または実行時ガードが働くことをテストする
+- `baseUrl`不正時にユーザーへ明示的エラーを返すことをテストする
+- Provider切り替えでModel候補が正しく切り替わることをテストする
+- `CometAPI` と `OpenRouter` の設定が保持・切替できることをテストする
+- `CometAPI` の既定 `baseUrl` が `https://api.cometapi.com/v1` で初期化されることをテストする
+- `OpenRouter` の既定 `baseUrl` が `https://openrouter.ai/api/v1` で初期化されることをテストする
+- `OpenRouter` の追加ヘッダー設定が保持できることをテストする
+- Secretが平文保存されないことをレビュー項目に含める
+- UIが最小限の操作回数でAgent起動まで到達できることを確認する
+
+## 9. 0.1 Lintルールカタログ（機械可読）
+
+| ID | LEVEL | CHECK | Rule |
+|---|---|---|---|
+| SYW-PROD-001 | MUST | manual | VSCode拡張としてAI Agentを操作できること |
+| SYW-AI-001 | MUST | manual | OpenAI SDKを介してエージェント・モデル呼び出しを行うこと |
+| SYW-PROV-001 | MUST | config | Provider設定に`name`と`baseUrl`と`apiKey`を含めること |
+| SYW-PROV-002 | MUST | manual | Providerをドロップダウンで選択できること |
+| SYW-PROV-003 | MUST | manual | `CometAPI` と `OpenRouter` をOpenAI互換Providerとして設定可能にすること |
+| SYW-MODEL-001 | MUST | manual | 選択Providerに対して`name`と`modelId`を設定できること |
+| SYW-UX-001 | MUST | manual | 実行状態・エラー・再試行導線を提供すること |
+| SYW-SEC-001 | MUST | manual | 秘匿情報を平文保存しないこと |
+| SYW-EXT-001 | SHOULD | manual | Provider追加時の変更範囲を局所化すること |
+| SYW-CDX-001 | SHOULD | manual | Codex/Cursor相当の必要機能一覧を設計基準に含めること |
