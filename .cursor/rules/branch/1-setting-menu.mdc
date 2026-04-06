@@ -1,0 +1,62 @@
+---
+description: 1-setting-menuブランチでの開発時に読み込む
+alwaysApply: false
+---
+1-setting-menuブランチルール
+===
+
+このブランチで実装することは以下の通りです。
+- UI上に歯車アイコンを設置し、クリック時にsetting menuを新しいtabで表示する
+- setting menuに`provider`追加ボタンと`model`追加ボタンを設置する
+- `provider`追加ボタンから`provider`編集画面を開けるようにする
+- `model`追加ボタンから`model`編集画面を開けるようにする
+- `provider`と`model`のそれぞれでCRUDを実行できるようにする
+- 設定内容を `~/.permosa/setting.json` に保存し、起動時に読み込めるようにする
+
+## 進捗
+- [x] 歯車アイコンの設置位置と表示条件を決める
+- [x] 歯車アイコン押下でsetting menuを新しいtabに表示する導線を実装する
+- [x] setting menuの画面構成を定義する
+- [x] `provider`追加ボタンを設置する
+- [x] `model`追加ボタンを設置する
+- [x] `provider`一覧表示と選択導線を実装する
+- [x] `model`一覧表示と選択導線を実装する
+- [x] `provider`の作成画面を実装する
+- [x] `provider`の更新画面を実装する
+- [x] `provider`の削除導線を実装する
+- [x] `provider`の保存バリデーションを実装する
+- [x] `model`の作成画面を実装する
+- [x] `model`の更新画面を実装する
+- [x] `model`の削除導線を実装する
+- [x] `model`の保存バリデーションを実装する
+- [x] `provider`と`model`のデータ構造を定義する
+- [x] `~/.permosa` ディレクトリが存在しない場合の作成処理を実装する
+- [x] `~/.permosa/setting.json` への保存処理を実装する
+- [x] `~/.permosa/setting.json` からの読込処理を実装する
+- [x] 設定ファイル破損時のフォールバックを実装する
+- [x] CRUD操作後にUI表示へ即時反映する
+- [x] 横スクロールを出さないレイアウトを確認する
+- [x] 主要操作の手動確認項目を整理する
+
+## 参考資料
+- `.cursor/rules/project.mdc`
+- `.cursor/rules/branch.mdc`
+- VSCode Webview UI Toolkit または現行UI実装の既存コンポーネント
+- VSCode Extension API のWebview連携
+- Node.js `fs` / `path` / `os.homedir()` を使った設定ファイル永続化
+
+## 調査結果・設計まとめ
+- setting menuは新しいtabで表示し、メインパネルの操作導線と分離する
+- 歯車アイコンは常時アクセス可能な位置に配置し、ユーザーが迷わず設定画面へ遷移できるようにする
+- `provider`と`model`は独立したCRUDを持つが、`model`は必要に応じて所属`provider`を参照できる構造にする
+- 編集画面は追加と更新でUIを共通化し、初期値の有無でcreate/updateを切り替える
+- 削除時は対象の識別情報を明示し、誤操作を避ける
+- 保存先は `~/.permosa/setting.json` に固定し、`apiKey` のような秘匿情報は Secret Storage に分離する
+- 永続化処理では `os.homedir()` を起点に `~/.permosa/setting.json` を解決する
+- `setting.json` は `provider` 一覧と `model` 一覧を含むJSON構造とし、将来の拡張用にバージョンまたはメタ情報を追加できる余地を残す
+- アプリ起動時は設定ファイルの存在確認を行い、未作成時は空の初期構造を採用する
+- 設定ファイルが壊れている場合は即座に上書きせず、ユーザーに分かる形でエラーを扱い、復旧可能な初期表示へフォールバックする
+- UIはproject ruleに従い、テーマカラー準拠、背景色不使用、webview横幅最大活用、横スクロール非表示を守る
+- 実装後の確認では、Provider / Model の追加・編集・削除と、設定ファイル保存の導線まで一通り通っている
+- 設定画面は新しいtabの埋め込みページとして扱い、左側のカテゴリナビと右側の詳細ペインで Codex Settings に近い操作感を出す
+- 左サイドバーはページ遷移のための固定ナビゲーションにし、右パネルは選択ページごとに CRUD 画面を1まとまりで表示する

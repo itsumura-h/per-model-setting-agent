@@ -34,7 +34,7 @@
       "perModelSettingAgentContainer": [
         {
           "id": "perModelSettingAgent.demoView",
-          "name": "Demo UI",
+          "name": "Main Panel",
           "type": "webview"
         }
       ]
@@ -42,7 +42,7 @@
     "commands": [
       {
         "command": "perModelSettingAgent.openDemo",
-        "title": "Per Model Setting Agent: Open Demo"
+        "title": "Per Model Setting Agent: Open Main Panel"
       },
       {
         "command": "perModelSettingAgent.moveToSecondarySideBar",

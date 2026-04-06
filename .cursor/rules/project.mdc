@@ -35,6 +35,12 @@ Lint可能化のため、規範ルールは **Rule ID** を持つ。
 | SYW-PROV-002 | MUST | manual | UI | ドロップダウンでProviderを選択できること |
 | SYW-MODEL-001 | MUST | manual | UI | 選択Providerに対して`name`と`modelId`を設定できること |
 | SYW-UX-001 | MUST | manual | UX | エージェント実行状態・失敗理由・再試行導線を提供すること |
+| SYW-UI-001 | MUST | manual | UI | 文字色はテーマカラーに合わせ、ダークテーマでは白、ライトテーマでは黒を用いること |
+| SYW-UI-002 | MUST | manual | UI | ローディング中メッセージなど補助テキストはダークテーマではグレーを用いること |
+| SYW-UI-003 | MUST | manual | UI | 背景色を使用しないこと |
+| SYW-UI-004 | MUST | manual | UI | webviewの横幅を最大限活用し、各コンポーネント幅もそれに合わせて調整すること |
+| SYW-UI-005 | MUST NOT | manual | UI | 横方向のスクロールバーを表示しないこと |
+| SYW-UI-006 | MAY | manual | UI | 縦方向のスクロールバーは表示してよい |
 | SYW-SEC-001 | MUST | manual | セキュリティ | APIキーなど秘匿情報を平文でソース管理しないこと |
 | SYW-EXT-001 | SHOULD | manual | 拡張性 | Provider追加時に既存UI/呼び出し層の変更を最小化すること |
 | SYW-CDX-001 | SHOULD | manual | 体験設計 | Codex/Cursor相当の操作体験を参考に必要機能を満たすこと |
@@ -113,6 +119,24 @@ Agent呼び出し体験には最低限以下を含めること。
 - エラー内容の表示
 - 再試行導線
 - 設定不備時のガイダンス
+
+#### [SYW-UI-001][MUST][manual]
+UIの文字色はテーマカラーに合わせなければならない。ダークテーマでは本文テキストを白、ライトテーマでは本文テキストを黒とすること。
+
+#### [SYW-UI-002][MUST][manual]
+エージェントがloading中であることを示すメッセージなど、補助的な状態表示テキストはダークテーマではグレーを用いること。
+
+#### [SYW-UI-003][MUST][manual]
+UIに背景色を使用してはならない。
+
+#### [SYW-UI-004][MUST][manual]
+webviewは横幅を最大限活用しなければならない。各コンポーネントの幅もwebviewの横幅に合わせて調整すること。
+
+#### [SYW-UI-005][MUST NOT][manual]
+UIは横方向のスクロールバーを表示してはならない。
+
+#### [SYW-UI-006][MAY][manual]
+UIは必要に応じて縦方向のスクロールバーを表示してよい。
 
 #### [SYW-SEC-001][MUST][manual]
 APIキーやトークンはVSCode Secret Storage、環境変数、または同等の安全な保存手段を用いなければならない。リポジトリ内ファイルへ平文保存してはならない。
@@ -237,6 +261,19 @@ type ProviderModelConfig = {
 
 上記は識別可能なエラーとして区別し、ユーザーに次アクションを示すこと。
 
+### 5.4 テーマ適用
+- 文字色はテーマカラーに合わせること
+- ダークテーマでは本文テキストを白にすること
+- ダークテーマでエージェントのloading中を示すメッセージなど補助テキストはグレーにすること
+- ライトテーマでは本文テキストを黒にすること
+- 背景色は使わないこと
+
+### 5.5 レイアウトとスクロール
+- webviewの横幅を最大として使うこと
+- 各コンポーネントの幅もwebviewの横幅に合わせて調整すること
+- 横のスクロールバーは表示しないこと
+- 縦のスクロールバーは表示してもよい
+
 ## 6. Codex/Cursorを踏まえた必要機能一覧
 
 エージェント呼び出し拡張機能には、少なくとも以下の機能群を計画対象として定義する。
@@ -345,6 +382,12 @@ Phase 3:
 | SYW-PROV-003 | MUST | manual | `CometAPI` と `OpenRouter` をOpenAI互換Providerとして設定可能にすること |
 | SYW-MODEL-001 | MUST | manual | 選択Providerに対して`name`と`modelId`を設定できること |
 | SYW-UX-001 | MUST | manual | 実行状態・エラー・再試行導線を提供すること |
+| SYW-UI-001 | MUST | manual | 文字色はテーマカラーに合わせ、ダークテーマでは白、ライトテーマでは黒を用いること |
+| SYW-UI-002 | MUST | manual | ローディング中メッセージなど補助テキストはダークテーマではグレーを用いること |
+| SYW-UI-003 | MUST | manual | 背景色を使用しないこと |
+| SYW-UI-004 | MUST | manual | webviewの横幅を最大限活用し、各コンポーネント幅もそれに合わせて調整すること |
+| SYW-UI-005 | MUST NOT | manual | 横方向のスクロールバーを表示しないこと |
+| SYW-UI-006 | MAY | manual | 縦方向のスクロールバーは表示してよい |
 | SYW-SEC-001 | MUST | manual | 秘匿情報を平文保存しないこと |
 | SYW-EXT-001 | SHOULD | manual | Provider追加時の変更範囲を局所化すること |
 | SYW-CDX-001 | SHOULD | manual | Codex/Cursor相当の必要機能一覧を設計基準に含めること |

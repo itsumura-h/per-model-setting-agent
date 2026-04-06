@@ -1,116 +1,409 @@
-export type DemoProviderId = 'cometapi' | 'openrouter';
+export type ProviderPresetId = 'cometapi' | 'openrouter' | 'custom';
 
-export type DemoProvider = {
-	id: DemoProviderId;
+export type ProviderPreset = {
+	id: Exclude<ProviderPresetId, 'custom'>;
 	name: string;
 	baseUrl: string;
+	description: string;
 	defaultModelId: string;
+	defaultHeaders: Record<string, string>;
+};
+
+export type ProviderConfig = {
+	id: string;
+	presetId?: ProviderPresetId;
+	name: string;
+	baseUrl: string;
+	apiKey?: string;
+	enabled: boolean;
+	description: string;
+	headers: Record<string, string>;
+};
+
+export type ModelConfig = {
+	id: string;
+	providerId: string;
+	name: string;
+	modelId: string;
+	enabled: boolean;
 	description: string;
 };
 
-export type DemoModel = {
-	id: string;
-	name: string;
-	providerId: DemoProviderId;
+export type SettingConfig = {
+	version: 1;
+	selectedProviderId: string;
+	selectedModelId: string;
+	providers: ProviderConfig[];
+	models: ModelConfig[];
 };
 
-export type DemoRunInput = {
-	providerId: DemoProviderId;
-	modelId: string;
+export type PersistedProviderConfig = Omit<ProviderConfig, 'apiKey'>;
+
+export type PersistedSettingConfig = {
+	version: 1;
+	selectedProviderId: string;
+	selectedModelId: string;
+	providers: PersistedProviderConfig[];
+	models: ModelConfig[];
+};
+
+export type RunPreviewInput = {
+	setting: SettingConfig;
 	prompt: string;
 };
 
-export type DemoRunResult = {
+export type RunPreviewResult = {
 	title: string;
-	statusLabel: string;
+	statusLabel: 'ready' | 'waiting' | 'error';
 	providerName: string;
 	modelName: string;
 	baseUrl: string;
 	prompt: string;
 	response: string;
 	checklist: string[];
+	errorMessage?: string;
 	timestamp: string;
 };
 
-export const demoProviders: DemoProvider[] = [
+export const providerPresets: ProviderPreset[] = [
 	{
 		id: 'cometapi',
 		name: 'CometAPI',
 		baseUrl: 'https://api.cometapi.com/v1',
-		defaultModelId: 'deepseek-chat',
 		description: 'OpenAI互換の基本確認用プロバイダー',
+		defaultModelId: 'deepseek-chat',
+		defaultHeaders: {},
 	},
 	{
 		id: 'openrouter',
 		name: 'OpenRouter',
 		baseUrl: 'https://openrouter.ai/api/v1',
-		defaultModelId: 'openai/gpt-4.1-mini',
 		description: '追加ヘッダー確認も想定したプロバイダー',
+		defaultModelId: 'openai/gpt-4.1-mini',
+		defaultHeaders: {
+			'HTTP-Referer': '',
+			'X-Title': '',
+		},
 	},
 ];
 
-const demoModels: DemoModel[] = [
+export const modelPresets: ModelConfig[] = [
 	{
 		id: 'deepseek-chat',
 		name: 'DeepSeek Chat',
 		providerId: 'cometapi',
+		enabled: true,
+		description: 'CometAPI の標準モデル',
+		modelId: 'deepseek-chat',
 	},
 	{
 		id: 'deepseek-reasoner',
 		name: 'DeepSeek Reasoner',
 		providerId: 'cometapi',
+		enabled: true,
+		description: 'CometAPI の推論系モデル',
+		modelId: 'deepseek-reasoner',
 	},
 	{
-		id: 'openai/gpt-4.1-mini',
+		id: 'openai-gpt-4.1-mini',
 		name: 'GPT-4.1 Mini',
 		providerId: 'openrouter',
+		enabled: true,
+		description: 'OpenRouter 経由の OpenAI 系モデル',
+		modelId: 'openai/gpt-4.1-mini',
 	},
 	{
-		id: 'anthropic/claude-3.5-sonnet',
+		id: 'anthropic-claude-3.5-sonnet',
 		name: 'Claude 3.5 Sonnet',
 		providerId: 'openrouter',
+		enabled: true,
+		description: 'OpenRouter 経由の Anthropic 系モデル',
+		modelId: 'anthropic/claude-3.5-sonnet',
 	},
 ];
 
-export function getDemoModels(providerId: DemoProviderId): DemoModel[] {
-	return demoModels.filter((model) => model.providerId === providerId);
+function createId(prefix: string) {
+	const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+	return `${prefix}-${suffix}`;
 }
 
-export function getDemoSelection(providerId: DemoProviderId) {
-	const provider = demoProviders.find((entry) => entry.id === providerId) ?? demoProviders[0];
-	const models = getDemoModels(provider.id);
-	const model = models.find((entry) => entry.id === provider.defaultModelId) ?? models[0];
+function isProviderPresetId(value: string | undefined): value is Exclude<ProviderPresetId, 'custom'> {
+	return value === 'cometapi' || value === 'openrouter';
+}
+
+function getPresetById(id: Exclude<ProviderPresetId, 'custom'>) {
+	return providerPresets.find((entry) => entry.id === id);
+}
+
+function normalizeHeaders(input: unknown, fallback: Record<string, string>) {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) {
+		return { ...fallback };
+	}
+
+	const entries = Object.entries(input as Record<string, unknown>).filter(([, value]) => typeof value === 'string');
+	if (entries.length === 0) {
+		return { ...fallback };
+	}
+
+	return Object.fromEntries(entries);
+}
+
+function normalizeProvider(input: Partial<ProviderConfig>, fallbackPreset?: ProviderPreset): ProviderConfig {
+	const presetId = isProviderPresetId(input.presetId) ? input.presetId : fallbackPreset?.id;
+	const preset = presetId ? getPresetById(presetId) : undefined;
+	const name = typeof input.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : preset?.name ?? '未設定のプロバイダー';
+	const baseUrl = typeof input.baseUrl === 'string' && input.baseUrl.trim().length > 0 ? input.baseUrl.trim() : preset?.baseUrl ?? '';
+	const description =
+		typeof input.description === 'string' && input.description.trim().length > 0
+			? input.description.trim()
+			: preset?.description ?? '';
 
 	return {
-		provider,
-		model,
+		id: typeof input.id === 'string' && input.id.trim().length > 0 ? input.id.trim() : createId('provider'),
+		presetId: presetId ?? undefined,
+		name,
+		baseUrl,
+		apiKey: typeof input.apiKey === 'string' ? input.apiKey : '',
+		enabled: typeof input.enabled === 'boolean' ? input.enabled : true,
+		description,
+		headers: normalizeHeaders(input.headers, preset?.defaultHeaders ?? {}),
 	};
 }
 
-export function createDemoRun(input: DemoRunInput): DemoRunResult {
-	const selection = getDemoSelection(input.providerId);
-	const model = getDemoModels(selection.provider.id).find((entry) => entry.id === input.modelId) ?? selection.model;
-	const prompt = input.prompt.trim();
-	const hasPrompt = prompt.length > 0;
-	const providerName = selection.provider.name;
-	const modelName = model?.name ?? selection.model.name;
+function normalizeModel(input: Partial<ModelConfig>, providers: ProviderConfig[]) {
+	const providerId = typeof input.providerId === 'string' && providers.some((entry) => entry.id === input.providerId) ? input.providerId : providers[0]?.id ?? '';
+	const providerPreset = providers.find((entry) => entry.id === providerId)?.presetId;
+	const preset = providerPreset && isProviderPresetId(providerPreset) ? providerPresets.find((entry) => entry.id === providerPreset) : undefined;
+	const name = typeof input.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : '新しいモデル';
 
 	return {
-		title: 'Core 動作確認',
-		statusLabel: hasPrompt ? 'ready' : 'waiting',
-		providerName,
-		modelName,
-		baseUrl: selection.provider.baseUrl,
-		prompt: hasPrompt ? prompt : '動作確認メッセージが未入力です。',
-		response: hasPrompt
-			? `${providerName} / ${modelName} に "${prompt}" を渡せる状態です。`
-			: 'メッセージを入力してから「実行」を押すと、core の返り値が変わります。',
+		id: typeof input.id === 'string' && input.id.trim().length > 0 ? input.id.trim() : createId('model'),
+		providerId,
+		name,
+		modelId:
+			typeof input.modelId === 'string' && input.modelId.trim().length > 0
+				? input.modelId.trim()
+				: preset?.defaultModelId ?? '',
+		enabled: typeof input.enabled === 'boolean' ? input.enabled : true,
+		description: typeof input.description === 'string' ? input.description.trim() : '',
+	};
+}
+
+function createDefaultProviders() {
+	return providerPresets.map((preset) => normalizeProvider({ presetId: preset.id }, preset));
+}
+
+function createDefaultModels(providers: ProviderConfig[]) {
+	return modelPresets
+		.filter((preset) => providers.some((provider) => provider.presetId === preset.providerId))
+		.map((preset) =>
+			normalizeModel(
+				{
+					id: preset.id,
+					providerId: preset.providerId,
+					name: preset.name,
+					modelId: preset.modelId,
+					enabled: preset.enabled,
+					description: preset.description,
+				},
+				providers,
+			),
+		);
+}
+
+export function createDefaultSettingConfig(): SettingConfig {
+	const providers = createDefaultProviders();
+	const models = createDefaultModels(providers);
+	const selectedProviderId = providers[0]?.id ?? '';
+	const selectedModelId = models.find((entry) => entry.providerId === selectedProviderId)?.id ?? '';
+
+	return {
+		version: 1,
+		selectedProviderId,
+		selectedModelId,
+		providers,
+		models,
+	};
+}
+
+export function normalizeSettingConfig(input?: Partial<PersistedSettingConfig> | Partial<SettingConfig> | null): SettingConfig {
+	const defaults = createDefaultSettingConfig();
+	const providersSource = Array.isArray(input?.providers) ? input.providers : undefined;
+	const providers =
+		providersSource === undefined
+			? defaults.providers
+			: providersSource
+					.map((entry) => normalizeProvider(entry))
+					.filter((entry) => entry.name.length > 0 && entry.baseUrl.length > 0);
+
+	const modelsSource = Array.isArray(input?.models) ? input.models : undefined;
+	const rawModels =
+		modelsSource === undefined
+			? providersSource === undefined
+				? defaults.models
+				: []
+			: modelsSource;
+	const models = rawModels
+		.map((entry) => normalizeModel(entry, providers))
+		.filter((entry) => entry.providerId.length > 0 && providers.some((provider) => provider.id === entry.providerId));
+
+	const selectedProviderId =
+		typeof input?.selectedProviderId === 'string' && providers.some((provider) => provider.id === input.selectedProviderId)
+			? input.selectedProviderId
+			: providers[0]?.id ?? '';
+	const selectedProviderModels = models.filter((entry) => entry.providerId === selectedProviderId);
+	const selectedModelId =
+		typeof input?.selectedModelId === 'string' && selectedProviderModels.some((entry) => entry.id === input.selectedModelId)
+			? input.selectedModelId
+			: selectedProviderModels[0]?.id ?? '';
+
+	return {
+		version: 1,
+		selectedProviderId,
+		selectedModelId,
+		providers,
+		models,
+	};
+}
+
+export function hydrateSettingConfig(
+	input?: Partial<PersistedSettingConfig> | Partial<SettingConfig> | null,
+	apiKeysByProviderId: Record<string, string> = {},
+) {
+	const normalized = normalizeSettingConfig(input);
+
+	return {
+		...normalized,
+		providers: normalized.providers.map((provider) => ({
+			...provider,
+			apiKey: apiKeysByProviderId[provider.id] ?? provider.apiKey ?? '',
+		})),
+	};
+}
+
+export function serializeSettingConfig(setting: SettingConfig): PersistedSettingConfig {
+	return {
+		version: 1,
+		selectedProviderId: setting.selectedProviderId,
+		selectedModelId: setting.selectedModelId,
+		providers: setting.providers.map(({ apiKey: _apiKey, ...provider }) => provider),
+		models: setting.models.map((model) => ({ ...model })),
+	};
+}
+
+export function getProviderPresetByProviderId(providerId: string) {
+	const provider = providerPresets.find((entry) => entry.id === providerId);
+	return provider;
+}
+
+export function getProviderModels(setting: SettingConfig, providerId: string) {
+	return setting.models.filter((model) => model.providerId === providerId);
+}
+
+export function getSelectedProvider(setting: SettingConfig) {
+	return setting.providers.find((provider) => provider.id === setting.selectedProviderId);
+}
+
+export function getSelectedModel(setting: SettingConfig) {
+	return setting.models.find((model) => model.id === setting.selectedModelId && model.providerId === setting.selectedProviderId);
+}
+
+export function getConfigurationIssues(setting: SettingConfig) {
+	const issues: string[] = [];
+	const selectedProvider = getSelectedProvider(setting);
+	const selectedModel = getSelectedModel(setting);
+
+	if (!selectedProvider) {
+		issues.push('選択中のProviderが見つかりません。Provider を追加して選び直してください。');
+		return issues;
+	}
+
+	if (!selectedProvider.enabled) {
+		issues.push('選択中のProviderが無効です。必要であれば有効化してください。');
+	}
+
+	if (selectedProvider.baseUrl.trim().length === 0) {
+		issues.push('Provider の baseUrl が未設定です。');
+	}
+
+	if (selectedProvider.apiKey?.trim().length === 0) {
+		issues.push('Provider の API キーが未設定です。');
+	}
+
+	if (!selectedModel) {
+		issues.push('選択中のModelが見つかりません。Model を追加して選び直してください。');
+		return issues;
+	}
+
+	if (!selectedModel.enabled) {
+		issues.push('選択中のModelが無効です。必要であれば有効化してください。');
+	}
+
+	if (selectedModel.modelId.trim().length === 0) {
+		issues.push('Model ID が未設定です。');
+	}
+
+	return issues;
+}
+
+export function createRunPreview(input: RunPreviewInput): RunPreviewResult {
+	const provider = getSelectedProvider(input.setting);
+	const model = getSelectedModel(input.setting);
+	const prompt = input.prompt.trim();
+	const issues = getConfigurationIssues(input.setting);
+	const timestamp = new Date().toLocaleTimeString('ja-JP');
+
+	if (!provider || !model) {
+		return {
+			title: '設定の確認が必要です',
+			statusLabel: 'error',
+			providerName: provider?.name ?? '未選択',
+			modelName: model?.name ?? '未選択',
+			baseUrl: provider?.baseUrl ?? '未設定',
+			prompt: prompt.length > 0 ? prompt : '未入力',
+			response: 'Provider / Model の設定が整うまで実行はできません。',
+			checklist: issues.length > 0 ? issues : ['Provider と Model を設定してください。'],
+			errorMessage: issues.join('\n'),
+			timestamp,
+		};
+	}
+
+	if (prompt.length === 0) {
+		return {
+			title: '入力待ちです',
+			statusLabel: 'waiting',
+			providerName: provider.name,
+			modelName: model.name,
+			baseUrl: provider.baseUrl,
+			prompt: '未入力',
+			response: '確認したいメッセージを入力すると、設定の組み合わせをプレビューできます。',
+			checklist: [
+				`Provider: ${provider.name}`,
+				`Model: ${model.name}`,
+				'メッセージを入力すると結果が更新されます',
+			],
+			timestamp,
+		};
+	}
+
+	return {
+		title: '実行プレビュー',
+		statusLabel: issues.length === 0 ? 'ready' : 'error',
+		providerName: provider.name,
+		modelName: model.name,
+		baseUrl: provider.baseUrl,
+		prompt,
+		response:
+			issues.length === 0
+				? `${provider.name} / ${model.name} に "${prompt}" を渡せる状態です。`
+				: '設定の不足があるため、実行プレビューはエラー状態です。',
 		checklist: [
-			`Provider: ${providerName}`,
-			`Model: ${modelName}`,
-			hasPrompt ? 'UI から core へ入力が届いています' : '入力すると結果が更新されます',
-			`Endpoint: ${selection.provider.baseUrl}`,
+			`Provider: ${provider.name}`,
+			`Model: ${model.name}`,
+			`Endpoint: ${provider.baseUrl}`,
+			issues.length === 0 ? 'UI から設定情報を正しく参照しています' : `要修正: ${issues[0]}`,
 		],
-		timestamp: new Date().toLocaleTimeString('ja-JP'),
+		errorMessage: issues.length > 0 ? issues.join('\n') : undefined,
+		timestamp,
 	};
 }
