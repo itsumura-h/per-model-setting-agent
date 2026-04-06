@@ -1,0 +1,74 @@
+{
+  "name": "per-model-setting-agent",
+  "displayName": "Per Model Setting Agent",
+  "description": "VS Code extension shell for provider and model demo webview packaging.",
+  "version": "0.0.1",
+  "publisher": "dumblepy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itsumura-h/per-model-setting-agent.git"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:perModelSettingAgent.demoView",
+    "onCommand:perModelSettingAgent.openDemo",
+    "onCommand:perModelSettingAgent.moveToSecondarySideBar"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "perModelSettingAgentContainer",
+          "title": "Per Model Setting Agent",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "perModelSettingAgentContainer": [
+        {
+          "id": "perModelSettingAgent.demoView",
+          "name": "Demo UI",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "perModelSettingAgent.openDemo",
+        "title": "Per Model Setting Agent: Open Demo"
+      },
+      {
+        "command": "perModelSettingAgent.moveToSecondarySideBar",
+        "title": "Per Model Setting Agent: Move UI to Secondary Side Bar"
+      }
+    ]
+  },
+  "files": [
+    "extension.js",
+    "package.json",
+    "LICENSE",
+    "media/**",
+    "readme.md",
+    "src/ui/dist/**"
+  ],
+  "scripts": {
+    "build": "pnpm run build:web",
+    "build:web": "pnpm --dir src/ui build",
+    "dev:web": "pnpm --dir src/ui dev",
+    "package:vsix": "pnpm run build:web && pnpm exec vsce package"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "@vscode/vsce": "^3.7.1"
+  }
+}
