@@ -151,12 +151,14 @@ function getPresetById(id: Exclude<ProviderPresetId, 'custom'>) {
 	return providerPresets.find((entry) => entry.id === id);
 }
 
-function normalizeHeaders(input: unknown, fallback: Record<string, string>) {
+function normalizeHeaders(input: unknown, fallback: Record<string, string>): Record<string, string> {
 	if (!input || typeof input !== 'object' || Array.isArray(input)) {
 		return { ...fallback };
 	}
 
-	const entries = Object.entries(input as Record<string, unknown>).filter(([, value]) => typeof value === 'string');
+	const entries = Object.entries(input as Record<string, unknown>).filter(
+		(entry): entry is [string, string] => typeof entry[1] === 'string',
+	);
 	if (entries.length === 0) {
 		return { ...fallback };
 	}
