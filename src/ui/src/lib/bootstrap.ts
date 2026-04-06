@@ -1,9 +1,12 @@
-import { createDefaultSettingConfig, normalizeSettingConfig } from '../../../core/index';
+import { createDefaultSettingConfig, createIdleWorkspaceExecutionState, normalizeSettingConfig } from '../../../core/index';
 import type { ExtensionState, VsCodeApi } from '../types';
+
+const fallbackSetting = createDefaultSettingConfig();
 
 export const fallbackBootstrapState: ExtensionState = {
 	surface: 'workspace',
-	setting: createDefaultSettingConfig(),
+	setting: fallbackSetting,
+	workspaceExecution: createIdleWorkspaceExecutionState(fallbackSetting),
 	filePath: '~/.permosa/setting.json',
 	loadMode: 'default',
 	message: 'ローカルプレビューを表示しています。',
@@ -17,10 +20,12 @@ export function readBootstrapState(): ExtensionState {
 		try {
 			const parsed = JSON.parse(raw) as ExtensionState;
 			if (parsed?.setting) {
+				const setting = normalizeSettingConfig(parsed.setting);
 				return {
 					...parsed,
 					surface: parsed.surface ?? 'workspace',
-					setting: normalizeSettingConfig(parsed.setting),
+					setting,
+					workspaceExecution: parsed.workspaceExecution ?? createIdleWorkspaceExecutionState(setting),
 				};
 			}
 		} catch {

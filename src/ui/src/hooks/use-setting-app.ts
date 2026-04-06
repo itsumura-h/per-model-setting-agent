@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 
 import {
-	createRunPreview,
+	createErrorWorkspaceExecutionState,
+	createIdleWorkspaceExecutionState,
+	createRunningWorkspaceExecutionState,
+	createSuccessWorkspaceExecutionState,
 	getConfigurationIssues,
-	getProviderModels,
 	getSelectedModel,
 	getSelectedProvider,
 	modelPresets,
@@ -12,6 +14,7 @@ import {
 	type ProviderConfig,
 	type ProviderPresetId,
 	type SettingConfig,
+	type WorkspaceExecutionState,
 } from '../../../core/index';
 import {
 	createProviderDraft,
@@ -25,7 +28,6 @@ import type {
 	EditorState,
 	ExtensionMessage,
 	ExtensionState,
-	RunPreview,
 	SettingsNavigationEntry,
 	SettingsSection,
 	VsCodeApi,
@@ -39,13 +41,12 @@ type UseSettingAppParams = {
 export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 	const [bootstrapState, setBootstrapState] = useState<ExtensionState>(initialState);
 	const [setting, setSetting] = useState<SettingConfig>(initialState.setting);
+	const [workspaceExecution, setWorkspaceExecution] = useState<WorkspaceExecutionState>(
+		initialState.workspaceExecution ?? createIdleWorkspaceExecutionState(initialState.setting),
+	);
 	const [surface] = useState<'workspace' | 'settings'>(initialState.surface ?? 'workspace');
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
 	const [prompt, setPrompt] = useState('設定メニューの読み込みと CRUD を確認します。');
-	const [hasRunPreview, setHasRunPreview] = useState(false);
-	const [runResult, setRunResult] = useState<RunPreview>(() =>
-		createRunPreview({ setting: initialState.setting, prompt: '設定メニューの読み込みと CRUD を確認します。' }),
-	);
 	const [editor, setEditor] = useState<EditorState | null>(null);
 	const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
 		initialState.loadMode === 'corrupt' ? 'error' : initialState.loadMode === 'default' ? 'idle' : 'saved',
@@ -59,6 +60,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			if (message.type === 'state-saved') {
 				setBootstrapState(message.state);
 				setSetting(message.state.setting);
+				setWorkspaceExecution(message.state.workspaceExecution ?? createIdleWorkspaceExecutionState(message.state.setting));
 				setSyncStatus('saved');
 				setSyncMessage(message.state.message);
 				return;
@@ -67,6 +69,24 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			if (message.type === 'state-error') {
 				setSyncStatus('error');
 				setSyncMessage(message.message);
+				return;
+			}
+
+			if (message.type === 'workspace-execution-state') {
+				setWorkspaceExecution(message.state);
+				setBootstrapState((current) => ({
+					...current,
+					workspaceExecution: message.state,
+					message:
+						message.state.status === 'running'
+							? 'Agent を実行しています。'
+							: message.state.status === 'success'
+								? 'Agent の応答を受信しました。'
+								: message.state.status === 'error'
+									? 'Agent の実行に失敗しました。'
+									: current.message,
+					errorMessage: message.state.status === 'error' ? message.state.errorMessage : undefined,
+				}));
 			}
 		};
 
@@ -76,17 +96,8 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		return () => window.removeEventListener('message', handler);
 	}, [vscode]);
 
-	useEffect(() => {
-		if (!hasRunPreview) {
-			return;
-		}
-
-		setRunResult(createRunPreview({ setting, prompt }));
-	}, [setting, prompt, hasRunPreview]);
-
 	const selectedProvider = getSelectedProvider(setting);
 	const selectedModel = getSelectedModel(setting);
-	const providerModels = useMemo(() => setting.models.filter((model) => model.enabled), [setting]);
 	const configurationIssues = getConfigurationIssues(setting);
 
 	function persistSetting(nextSetting: SettingConfig) {
@@ -95,9 +106,13 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
+			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
 			message: '設定を保存しています。',
 			errorMessage: undefined,
 		}));
+		setWorkspaceExecution((current) =>
+			current.status === 'running' ? current : createIdleWorkspaceExecutionState(normalized),
+		);
 		setSyncStatus('saving');
 		setSyncMessage('設定を保存しています。');
 
@@ -114,6 +129,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
+			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
 			message: 'ローカルプレビューを更新しました。',
 			errorMessage: undefined,
 		}));
@@ -121,15 +137,6 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 
 	function updateSelection(nextSetting: SettingConfig) {
 		persistSetting(normalizeSettingConfig(nextSetting));
-	}
-
-	function selectProvider(providerId: string) {
-		const nextModelId = getProviderModels(setting, providerId)[0]?.id ?? '';
-		updateSelection({
-			...setting,
-			selectedProviderId: providerId,
-			selectedModelId: nextModelId,
-		});
 	}
 
 	function selectModel(modelId: string) {
@@ -142,9 +149,59 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		});
 	}
 
-	function runPreview() {
-		setHasRunPreview(true);
-		setRunResult(createRunPreview({ setting, prompt }));
+	function runAgent() {
+		const trimmedPrompt = prompt.trim();
+		if (trimmedPrompt.length === 0) {
+			setWorkspaceExecution(createIdleWorkspaceExecutionState(setting));
+			return;
+		}
+
+		const normalizedSetting = normalizeSettingConfig(setting);
+		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, trimmedPrompt);
+		setWorkspaceExecution(runningState);
+		setBootstrapState((current) => ({
+			...current,
+			setting: normalizedSetting,
+			workspaceExecution: runningState,
+			message: 'Agent を実行しています。',
+			errorMessage: undefined,
+		}));
+
+		if (vscode) {
+			vscode.postMessage({
+				type: 'run-workspace-agent',
+				setting: normalizedSetting,
+				prompt: trimmedPrompt,
+			});
+			return;
+		}
+
+		const configurationIssues = getConfigurationIssues(normalizedSetting);
+		if (configurationIssues.length > 0) {
+			const errorState = createErrorWorkspaceExecutionState(
+				normalizedSetting,
+				trimmedPrompt,
+				configurationIssues.join('\n'),
+			);
+			setWorkspaceExecution(errorState);
+			setBootstrapState((current) => ({
+				...current,
+				workspaceExecution: errorState,
+				message: '設定を確認してください。',
+				errorMessage: errorState.errorMessage,
+			}));
+			return;
+		}
+
+		const previewResponse = `${selectedProvider?.name ?? 'Provider'} / ${selectedModel?.name ?? 'Model'} に "${trimmedPrompt}" を送信するローカルプレビューです。`;
+		const successState = createSuccessWorkspaceExecutionState(normalizedSetting, trimmedPrompt, previewResponse);
+		setWorkspaceExecution(successState);
+		setBootstrapState((current) => ({
+			...current,
+			workspaceExecution: successState,
+			message: 'ローカルプレビューで応答を表示しました。',
+			errorMessage: undefined,
+		}));
 	}
 
 	function openProviderEditor(provider?: ProviderConfig) {
@@ -418,21 +475,20 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		surface,
 		settingsSection,
 		prompt,
-		runResult,
+		workspaceExecution,
 		editor,
 		syncStatus,
 		syncMessage,
 		selectedProvider,
 		selectedModel,
-		providerModels,
 		configurationIssues,
 		settingSummary,
 		settingsNavigation,
 		activeSettingsPanel: settingsSection,
 		setPrompt,
-		selectProvider,
 		selectModel,
-		runPreview,
+		runAgent,
+		retryAgent: runAgent,
 		openProviderEditor,
 		openModelEditor,
 		closeEditor,

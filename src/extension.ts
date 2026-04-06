@@ -4,12 +4,18 @@ import path from 'node:path';
 import * as vscode from 'vscode';
 
 import {
+	createErrorWorkspaceExecutionState,
+	createIdleWorkspaceExecutionState,
+	createRunningWorkspaceExecutionState,
+	createSuccessWorkspaceExecutionState,
 	createDefaultSettingConfig,
 	hydrateSettingConfig,
 	normalizeSettingConfig,
 	serializeSettingConfig,
 	type SettingConfig,
+	type WorkspaceExecutionState,
 } from './core/index';
+import { executeWorkspacePrompt, formatWorkspaceAgentError } from './workspace-agent';
 
 const VIEW_ID = 'perModelSettingAgent.demoView';
 const VIEW_CONTAINER_ID = 'perModelSettingAgentContainer';
@@ -21,6 +27,7 @@ type WebviewSurface = 'workspace' | 'settings';
 type WebviewState = {
 	surface: WebviewSurface;
 	setting: SettingConfig;
+	workspaceExecution: WorkspaceExecutionState;
 	filePath: string;
 	loadMode: 'default' | 'loaded' | 'corrupt';
 	message: string;
@@ -35,6 +42,11 @@ type WebviewMessage =
 	| {
 			type: 'save-state';
 			setting: SettingConfig;
+	  }
+	| {
+			type: 'run-workspace-agent';
+			setting: SettingConfig;
+			prompt: string;
 	  };
 
 type IncomingWebviewMessage = WebviewMessage | { type: 'open-settings-panel' } | { type: 'open-main-panel' };
@@ -43,12 +55,17 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 	private view?: vscode.WebviewView;
 	private readonly panels = new Set<vscode.WebviewPanel>();
 
-	private state: Omit<WebviewState, 'surface'> = {
-		setting: createDefaultSettingConfig(),
-		filePath: getSettingsFilePath(),
-		loadMode: 'default',
-		message: '初期設定を読み込んでいます。',
-	};
+	private state: Omit<WebviewState, 'surface'> = (() => {
+		const setting = createDefaultSettingConfig();
+
+		return {
+			setting,
+			workspaceExecution: createIdleWorkspaceExecutionState(setting),
+			filePath: getSettingsFilePath(),
+			loadMode: 'default',
+			message: '初期設定を読み込んでいます。',
+		};
+	})();
 
 	constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -80,6 +97,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			if (!persisted) {
 				return {
 					setting: defaultState,
+					workspaceExecution: createIdleWorkspaceExecutionState(defaultState),
 					filePath,
 					loadMode: 'default',
 					message: '設定ファイルが見つかりません。既定の provider / model を表示しています。',
@@ -91,6 +109,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 
 			return {
 				setting,
+				workspaceExecution: createIdleWorkspaceExecutionState(setting),
 				filePath,
 				loadMode: 'loaded',
 				message: '設定ファイルを読み込みました。',
@@ -98,6 +117,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 		} catch (error) {
 			return {
 				setting: defaultState,
+				workspaceExecution: createIdleWorkspaceExecutionState(defaultState),
 				filePath,
 				loadMode: 'corrupt',
 				message: '設定ファイルの読み込みに失敗しました。既定の provider / model を表示しています。',
@@ -113,9 +133,15 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			await ensureSettingsDirectory();
 			await fs.writeFile(getSettingsFilePath(), `${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
 			await persistProviderApiKeys(this.context, this.state.setting.providers, normalized.providers);
+			const workspaceExecution =
+				this.state.workspaceExecution.status === 'running'
+					? this.state.workspaceExecution
+					: createIdleWorkspaceExecutionState(normalized);
 
 			this.state = {
+				...this.state,
 				setting: normalized,
+				workspaceExecution,
 				filePath: getSettingsFilePath(),
 				loadMode: 'loaded',
 				message: '設定を保存しました。',
@@ -161,6 +187,59 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 
 		panel.webview.html = await getWebviewHtml(panel.webview, this.context.extensionUri, this.buildState('settings'));
 		this.registerMessageHandlers(panel.webview, 'settings');
+	}
+
+	private async runWorkspaceAgent(setting: SettingConfig, prompt: string) {
+		const normalizedSetting = normalizeSettingConfig(setting);
+		const normalizedPrompt = prompt.trim();
+		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, normalizedPrompt);
+
+		this.state = {
+			...this.state,
+			setting: normalizedSetting,
+			workspaceExecution: runningState,
+			message: 'Agent を実行しています。',
+			errorMessage: undefined,
+		};
+
+		await this.broadcastMessage({
+			type: 'workspace-execution-state',
+			state: runningState,
+		});
+
+		try {
+			const response = await executeWorkspacePrompt(normalizedSetting, normalizedPrompt);
+			const successState = createSuccessWorkspaceExecutionState(normalizedSetting, normalizedPrompt, response);
+
+			this.state = {
+				...this.state,
+				setting: normalizedSetting,
+				workspaceExecution: successState,
+				message: 'Agent から応答が届きました。',
+				errorMessage: undefined,
+			};
+
+			await this.broadcastMessage({
+				type: 'workspace-execution-state',
+				state: successState,
+			});
+		} catch (error) {
+			const errorMessage = formatWorkspaceAgentError(error);
+			const errorState = createErrorWorkspaceExecutionState(normalizedSetting, normalizedPrompt, errorMessage);
+
+			this.state = {
+				...this.state,
+				setting: normalizedSetting,
+				workspaceExecution: errorState,
+				message: 'Agent の実行に失敗しました。',
+				errorMessage,
+			};
+
+			await this.broadcastMessage({
+				type: 'workspace-execution-state',
+				state: errorState,
+			});
+		}
 	}
 
 	private async broadcastState() {
@@ -209,6 +288,11 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 
 			if (message.type === 'save-state') {
 				await this.saveState(message.setting);
+				return;
+			}
+
+			if (message.type === 'run-workspace-agent') {
+				await this.runWorkspaceAgent(message.setting, message.prompt);
 				return;
 			}
 

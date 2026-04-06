@@ -1,8 +1,14 @@
-import { createRunPreview, type ModelConfig, type ProviderConfig, type SettingConfig } from '../../core/index';
+import {
+	type ModelConfig,
+	type ProviderConfig,
+	type SettingConfig,
+	type WorkspaceExecutionState,
+} from '../../core/index';
 
 export type ExtensionState = {
 	surface: 'workspace' | 'settings';
 	setting: SettingConfig;
+	workspaceExecution: WorkspaceExecutionState;
 	filePath: string;
 	loadMode: 'default' | 'loaded' | 'corrupt';
 	message: string;
@@ -36,6 +42,10 @@ export type ExtensionMessage =
 			type: 'state-error';
 			message: string;
 	  };
+	| {
+			type: 'workspace-execution-state';
+			state: WorkspaceExecutionState;
+	  };
 
 export type VsCodeApi = {
 	postMessage(message: unknown): void;
@@ -51,5 +61,3 @@ export type SettingsNavigationEntry = {
 	icon: string;
 	panel: 'general' | 'provider' | 'model';
 };
-
-export type RunPreview = ReturnType<typeof createRunPreview>;

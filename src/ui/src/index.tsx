@@ -18,17 +18,15 @@ function App() {
 				<WorkspaceView
 					bootstrapState={app.bootstrapState}
 					setting={app.setting}
-					providerModels={app.providerModels}
-					runResult={app.runResult}
-					settingSummary={app.settingSummary}
+					workspaceExecution={app.workspaceExecution}
 					configurationIssues={app.configurationIssues}
 					prompt={app.prompt}
 					syncStatus={app.syncStatus}
 					syncMessage={app.syncMessage}
 					onPromptInput={app.setPrompt}
-					onSelectProvider={app.selectProvider}
 					onSelectModel={app.selectModel}
-					onRunPreview={app.runPreview}
+					onRunAgent={app.runAgent}
+					onRetryAgent={app.retryAgent}
 					onOpenSettings={() => vscode?.postMessage({ type: 'open-settings-panel' })}
 				/>
 			) : (
