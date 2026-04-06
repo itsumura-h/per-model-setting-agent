@@ -62,14 +62,14 @@ export function SettingsView({
 	onUpdateProviderHeadersText,
 	onUpdateModelDraft,
 	getProviderPreset,
-}: SettingsViewProps) {
+	}: SettingsViewProps) {
 	return (
-		<div class="grid w-full min-w-0 items-stretch overflow-hidden rounded-[20px] border border-[color:var(--vscode-panel-border)] grid-cols-1 md:[grid-template-columns:minmax(15.5rem,17.5rem)_minmax(0,1fr)]">
-			<div class="min-w-0 border-b border-[color:var(--vscode-panel-border)] md:border-b-0 md:border-r">
+		<div class="flex w-full min-w-0 flex-col items-stretch overflow-hidden rounded-[20px] border border-[color:var(--vscode-panel-border)] md:flex-row">
+			<div class="min-w-0 border-b border-[color:var(--vscode-panel-border)] md:basis-1/4 md:border-b-0 md:border-r">
 				<SettingsSidebar settingsNavigation={settingsNavigation} activeSettingsPanel={activeSettingsPanel} onOpenSettings={onOpenSettings} />
 			</div>
 
-			<div class="min-w-0">
+			<div class="min-w-0 md:basis-3/4">
 				<div class="grid min-w-0 gap-4 px-5 pt-4 pb-6">
 					{activeSettingsPanel === 'general' ? (
 						<GeneralSettingsPage
