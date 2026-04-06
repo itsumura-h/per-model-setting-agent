@@ -16,7 +16,6 @@ export function ProviderSettingsPage({
 }: ProviderSettingsPageProps) {
 	const editingProviderId = editor && editor.kind === 'provider' && editor.mode === 'edit' ? editor.draft.id : null;
 	const isCreatingProvider = editor?.kind === 'provider' && editor.mode === 'create';
-	const isEditingProvider = Boolean(editingProviderId);
 
 	return (
 		<div class="grid min-w-0 gap-4">

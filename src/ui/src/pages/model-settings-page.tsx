@@ -13,7 +13,6 @@ export function ModelSettingsPage({
 }: ModelSettingsPageProps) {
 	const editingModelId = editor && editor.kind === 'model' && editor.mode === 'edit' ? editor.draft.id : null;
 	const isCreatingModel = editor?.kind === 'model' && editor.mode === 'create';
-	const isEditingModel = Boolean(editingModelId);
 
 	return (
 		<div class="grid min-w-0 gap-4">
