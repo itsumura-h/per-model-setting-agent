@@ -20,17 +20,10 @@ export function ModelSettingsPage({
 				<div class="flex flex-wrap items-start justify-between gap-3">
 					<div>
 						<h2>Model</h2>
-						<p>全ての Model を一覧で表示し、更新はカード内、追加は下部のフォームで行えます。</p>
 					</div>
 			</div>
 
 			<div class="grid min-w-0 gap-3.5 rounded-[18px] border border-[color:var(--vscode-panel-border)] p-4">
-				<div class="flex flex-wrap items-start justify-between gap-3">
-					<div>
-						<h3>Model 一覧</h3>
-					</div>
-				</div>
-
 				<div class="grid min-w-0 gap-3">
 						{setting.models.length === 0 ? (
 							<div class="grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">

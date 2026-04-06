@@ -145,7 +145,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 	}
 
 	function openProviderEditor(provider?: ProviderConfig) {
-		setEditor(makeProviderEditorDraft(provider ?? selectedProvider ?? undefined));
+		setEditor(makeProviderEditorDraft(provider));
 		setSettingsSection('provider');
 	}
 

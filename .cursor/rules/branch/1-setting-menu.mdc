@@ -50,6 +50,8 @@ alwaysApply: false
 - [x] model 一覧からのクリック選択を削除し、model の選択は workspace 側に集約する
 - [x] model 編集時は一覧の該当カード内でフォームを表示するようにした
 - [x] model の新規作成導線を画面下部の accordion に移した
+- [x] provider 編集時も一覧の該当カード内でフォームを表示するようにした
+- [x] provider の新規作成導線を画面下部の accordion に移した
 
 ## 参考資料
 - `.cursor/rules/project.mdc`
@@ -81,5 +83,7 @@ alwaysApply: false
 - model 一覧は表示と CRUD に専念させ、選択状態の強調やクリック選択は置かない
 - model 編集は下部の共通フォームではなく、一覧内の該当カードに inline form として出す
 - model の新規作成は画面下部の accordion にまとめ、普段は折りたたんでおく
+- provider 編集も下部の共通フォームではなく、一覧内の該当カードに inline form として出す
+- provider の新規作成も画面下部の accordion にまとめ、普段は折りたたんでおく
 - 既存の semantic class を維持しつつ、`@layer` と `@apply` で Tailwind のユーティリティに寄せると置き換えコストを抑えやすい
 - 自前CSSを残さずに済ませる場合は、JSX 既存クラスへ runtime で Tailwind / daisyUI クラスを付与する方法も有効
