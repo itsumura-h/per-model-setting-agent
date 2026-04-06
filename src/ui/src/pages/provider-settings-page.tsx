@@ -1,5 +1,6 @@
 import { providerPresets } from '../../../core/index';
 import type { ProviderSettingsPageProps } from './types';
+import { fieldClass } from '../consts';
 
 export function ProviderSettingsPage({
 	editor,
@@ -110,7 +111,7 @@ export function ProviderSettingsPage({
 							{editor.errorMessage ? <p class="m-0">{editor.errorMessage}</p> : null}
 							<label class="grid min-w-0 gap-2">
 								<span>Preset</span>
-								<select value={editor.draft.presetId ?? 'custom'} onChange={(event) => onSetProviderDraftPreset((event.currentTarget as HTMLSelectElement).value as 'custom' | 'cometapi' | 'openrouter')}>
+								<select class={fieldClass} value={editor.draft.presetId ?? 'custom'} onChange={(event) => onSetProviderDraftPreset((event.currentTarget as HTMLSelectElement).value as 'custom' | 'cometapi' | 'openrouter')}>
 									<option value="custom">Custom</option>
 									{providerPresets.map((preset) => (
 										<option key={preset.id} value={preset.id}>
@@ -122,24 +123,24 @@ export function ProviderSettingsPage({
 							<div class="grid min-w-0 gap-3 grid-cols-1 md:grid-cols-2">
 								<label class="grid min-w-0 gap-2">
 									<span>Name</span>
-									<input value={editor.draft.name} onInput={(event) => onUpdateProviderDraft({ name: (event.currentTarget as HTMLInputElement).value })} />
+									<input class={fieldClass} value={editor.draft.name} onInput={(event) => onUpdateProviderDraft({ name: (event.currentTarget as HTMLInputElement).value })} />
 								</label>
 								<label class="grid min-w-0 gap-2">
 									<span>Base URL</span>
-									<input value={editor.draft.baseUrl} onInput={(event) => onUpdateProviderDraft({ baseUrl: (event.currentTarget as HTMLInputElement).value })} />
+									<input class={fieldClass} value={editor.draft.baseUrl} onInput={(event) => onUpdateProviderDraft({ baseUrl: (event.currentTarget as HTMLInputElement).value })} />
 								</label>
 							</div>
 							<label class="grid min-w-0 gap-2">
 								<span>API Key</span>
-								<input type="password" value={editor.draft.apiKey ?? ''} onInput={(event) => onUpdateProviderDraft({ apiKey: (event.currentTarget as HTMLInputElement).value })} />
+								<input class={fieldClass} type="password" value={editor.draft.apiKey ?? ''} onInput={(event) => onUpdateProviderDraft({ apiKey: (event.currentTarget as HTMLInputElement).value })} />
 							</label>
 							<label class="grid min-w-0 gap-2">
 								<span>Description</span>
-								<textarea rows={3} value={editor.draft.description} onInput={(event) => onUpdateProviderDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
+								<textarea class={fieldClass} rows={3} value={editor.draft.description} onInput={(event) => onUpdateProviderDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
 							</label>
 							<label class="grid min-w-0 gap-2">
 								<span>Headers JSON</span>
-								<textarea rows={5} value={editor.headersText} onInput={(event) => onUpdateProviderHeadersText((event.currentTarget as HTMLTextAreaElement).value)} />
+								<textarea class={fieldClass} rows={5} value={editor.headersText} onInput={(event) => onUpdateProviderHeadersText((event.currentTarget as HTMLTextAreaElement).value)} />
 							</label>
 							<label class="inline-flex items-center gap-2.5">
 								<input type="checkbox" checked={editor.draft.enabled} onChange={(event) => onUpdateProviderDraft({ enabled: (event.currentTarget as HTMLInputElement).checked })} />

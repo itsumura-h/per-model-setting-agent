@@ -1,4 +1,5 @@
 import type { ModelSettingsPageProps } from './types';
+import { fieldClass } from '../consts';
 
 export function ModelSettingsPage({
 	editor,
@@ -92,7 +93,7 @@ export function ModelSettingsPage({
 							{editor.errorMessage ? <p class="m-0">{editor.errorMessage}</p> : null}
 							<label class="grid min-w-0 gap-2">
 								<span>Provider</span>
-								<select value={editor.draft.providerId} onChange={(event) => onSetModelProviderId((event.currentTarget as HTMLSelectElement).value)}>
+								<select class={fieldClass} value={editor.draft.providerId} onChange={(event) => onSetModelProviderId((event.currentTarget as HTMLSelectElement).value)}>
 									{setting.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
 									{setting.providers.map((provider) => (
 										<option key={provider.id} value={provider.id}>
@@ -104,16 +105,16 @@ export function ModelSettingsPage({
 							<div class="grid min-w-0 gap-3 grid-cols-1 md:grid-cols-2">
 								<label class="grid min-w-0 gap-2">
 									<span>Name</span>
-									<input value={editor.draft.name} onInput={(event) => onUpdateModelDraft({ name: (event.currentTarget as HTMLInputElement).value })} />
+									<input class={fieldClass} value={editor.draft.name} onInput={(event) => onUpdateModelDraft({ name: (event.currentTarget as HTMLInputElement).value })} />
 								</label>
 								<label class="grid min-w-0 gap-2">
 									<span>Model ID</span>
-									<input value={editor.draft.modelId} onInput={(event) => onUpdateModelDraft({ modelId: (event.currentTarget as HTMLInputElement).value })} />
+									<input class={fieldClass} value={editor.draft.modelId} onInput={(event) => onUpdateModelDraft({ modelId: (event.currentTarget as HTMLInputElement).value })} />
 								</label>
 							</div>
 							<label class="grid min-w-0 gap-2">
 								<span>Description</span>
-								<textarea rows={3} value={editor.draft.description} onInput={(event) => onUpdateModelDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
+								<textarea class={fieldClass} rows={3} value={editor.draft.description} onInput={(event) => onUpdateModelDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
 							</label>
 							<label class="inline-flex items-center gap-2.5">
 								<input type="checkbox" checked={editor.draft.enabled} onChange={(event) => onUpdateModelDraft({ enabled: (event.currentTarget as HTMLInputElement).checked })} />
