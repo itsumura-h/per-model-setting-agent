@@ -37,6 +37,12 @@ alwaysApply: false
 - [x] CRUD操作後にUI表示へ即時反映する
 - [x] 横スクロールを出さないレイアウトを確認する
 - [x] 主要操作の手動確認項目を整理する
+- [x] 設定画面のサイドバーを画像のように簡素化する
+- [x] 設定画面のサイドバー項目を `general` / `provider` / `model` の3つに絞る
+- [x] UIスタイルを生CSS中心から Tailwind / daisyUI ベースへリファクタリングする
+- [x] `src/ui/src/style.css` を import のみ構成にして、自前CSS定義をなくす
+- [x] `runtimeClassRules` を削除して Tailwind / daisyUI のユーティリティクラスを JSX 側へ直接適用する
+- [x] `src/ui/src/index.tsx` の UI とロジックを hook / component に分割し、単一責任に沿って整理する
 
 ## 参考資料
 - `.cursor/rules/project.mdc`
@@ -60,3 +66,7 @@ alwaysApply: false
 - 実装後の確認では、Provider / Model の追加・編集・削除と、設定ファイル保存の導線まで一通り通っている
 - 設定画面は新しいtabの埋め込みページとして扱い、左側のカテゴリナビと右側の詳細ペインで Codex Settings に近い操作感を出す
 - 左サイドバーはページ遷移のための固定ナビゲーションにし、右パネルは選択ページごとに CRUD 画面を1まとまりで表示する
+- 左サイドバーは説明文やフッターを持たない、アイコン + 一行ラベルの簡素な構成に寄せる
+- 左サイドバーの遷移項目は `general` / `provider` / `model` の3項目のみとする
+- 既存の semantic class を維持しつつ、`@layer` と `@apply` で Tailwind のユーティリティに寄せると置き換えコストを抑えやすい
+- 自前CSSを残さずに済ませる場合は、JSX 既存クラスへ runtime で Tailwind / daisyUI クラスを付与する方法も有効
