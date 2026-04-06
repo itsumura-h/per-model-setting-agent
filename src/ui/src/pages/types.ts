@@ -16,10 +16,8 @@ export type ProviderSettingsPageProps = {
 		selectedProviderId: string;
 		providers: ProviderConfig[];
 	};
-	onOpenSettings: (section: SettingsSection) => void;
 	onOpenProviderEditor: (provider?: ProviderConfig) => void;
 	onCloseEditor: () => void;
-	onSelectProvider: (providerId: string) => void;
 	onDeleteProvider: (providerId: string) => void;
 	onSaveProviderDraft: () => void;
 	onSetProviderDraftPreset: (presetId: 'custom' | 'cometapi' | 'openrouter') => void;
@@ -31,15 +29,11 @@ export type ProviderSettingsPageProps = {
 export type ModelSettingsPageProps = {
 	editor: EditorState | null;
 	setting: {
-		selectedModelId: string;
 		providers: ProviderConfig[];
+		models: ModelConfig[];
 	};
-	selectedProvider?: ProviderConfig;
-	providerModels: ModelConfig[];
-	onOpenSettings: (section: SettingsSection) => void;
 	onOpenModelEditor: (model?: ModelConfig) => void;
 	onCloseEditor: () => void;
-	onSelectModel: (modelId: string) => void;
 	onDeleteModel: (modelId: string) => void;
 	onSaveModelDraft: () => void;
 	onSetModelProviderId: (providerId: string) => void;

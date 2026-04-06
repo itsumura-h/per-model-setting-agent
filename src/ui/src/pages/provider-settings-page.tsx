@@ -4,10 +4,8 @@ import type { ProviderSettingsPageProps } from './types';
 export function ProviderSettingsPage({
 	editor,
 	setting,
-	onOpenSettings,
 	onOpenProviderEditor,
 	onCloseEditor,
-	onSelectProvider,
 	onDeleteProvider,
 	onSaveProviderDraft,
 	onSetProviderDraftPreset,
@@ -20,14 +18,11 @@ export function ProviderSettingsPage({
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<div>
 					<h2>Provider</h2>
-					<p>Provider を追加・更新・削除できます。選択中の Provider は Model 側にも反映されます。</p>
+					<p>Provider を追加・更新・削除できます。接続先の切り替えは Model 編集画面で行います。</p>
 				</div>
 				<div class="flex flex-wrap items-center gap-2.5">
 					<button class="btn btn-ghost btn-sm font-bold border border-[color:var(--vscode-focusBorder)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenProviderEditor()}>
 						Provider を追加
-					</button>
-					<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenSettings('model')}>
-						Model へ
 					</button>
 				</div>
 			</div>
@@ -36,19 +31,10 @@ export function ProviderSettingsPage({
 				<div class="flex flex-wrap items-start justify-between gap-3">
 					<div>
 						<h3>Provider 一覧</h3>
-						<p>一覧から選択し、右側の CRUD で編集できます。</p>
-					</div>
-					<div class="flex flex-wrap items-center gap-2.5">
-						<button class="btn btn-ghost btn-sm font-bold border border-[color:var(--vscode-focusBorder)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenProviderEditor()}>
-							Provider を追加
-						</button>
-						<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenSettings('model')}>
-							Model へ
-						</button>
 					</div>
 				</div>
 
-				<div class="grid min-w-0 gap-3 max-h-[300px] overflow-auto pr-0.5">
+				<div class="grid min-w-0 gap-3">
 					{setting.providers.length === 0 ? (
 						<div class="grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
 							<p>Provider がありません。</p>
@@ -57,13 +43,11 @@ export function ProviderSettingsPage({
 					) : (
 						setting.providers.map((provider) => {
 							const preset = getProviderPreset(provider);
-							const isSelected = provider.id === setting.selectedProviderId;
 
 							return (
 								<article
 									key={provider.id}
-									class={`grid cursor-pointer gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)] ${isSelected ? 'border-[color:var(--vscode-focusBorder)]' : ''}`}
-									onClick={() => onSelectProvider(provider.id)}
+									class={`grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)] ${provider.id === setting.selectedProviderId ? 'border-[color:var(--vscode-focusBorder)]' : ''}`}
 								>
 									<div class="flex flex-wrap items-start justify-between gap-2.5">
 										<div>

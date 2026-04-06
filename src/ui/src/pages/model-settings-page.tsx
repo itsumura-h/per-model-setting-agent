@@ -3,12 +3,8 @@ import type { ModelSettingsPageProps } from './types';
 export function ModelSettingsPage({
 	editor,
 	setting,
-	selectedProvider,
-	providerModels,
-	onOpenSettings,
 	onOpenModelEditor,
 	onCloseEditor,
-	onSelectModel,
 	onDeleteModel,
 	onSaveModelDraft,
 	onSetModelProviderId,
@@ -19,14 +15,11 @@ export function ModelSettingsPage({
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<div>
 					<h2>Model</h2>
-					<p>選択中 Provider に紐づく Model を管理します。</p>
+					<p>全ての Model を一覧で表示し、追加・更新・削除できます。</p>
 				</div>
 				<div class="flex flex-wrap items-center gap-2.5">
 					<button class="btn btn-ghost btn-sm font-bold border border-[color:var(--vscode-focusBorder)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenModelEditor()}>
 						Model を追加
-					</button>
-					<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenSettings('provider')}>
-						Provider へ
 					</button>
 				</div>
 			</div>
@@ -35,49 +28,25 @@ export function ModelSettingsPage({
 				<div class="flex flex-wrap items-start justify-between gap-3">
 					<div>
 						<h3>Model 一覧</h3>
-						<p>{selectedProvider ? `${selectedProvider.name} に紐づく Model を表示します。` : 'Provider を選ぶと Model を表示できます。'}</p>
-					</div>
-					<div class="flex flex-wrap items-center gap-2.5">
-						<button class="btn btn-ghost btn-sm font-bold border border-[color:var(--vscode-focusBorder)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenModelEditor()}>
-							Model を追加
-						</button>
-						<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={() => onOpenSettings('provider')}>
-							Provider へ
-						</button>
 					</div>
 				</div>
 
-				<div class="grid min-w-0 gap-3 max-h-[300px] overflow-auto pr-0.5">
-					{!selectedProvider ? (
+				<div class="grid min-w-0 gap-3">
+					{setting.models.length === 0 ? (
 						<div class="grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-							<p>Provider を選択してください。</p>
-						</div>
-					) : providerModels.length === 0 ? (
-						<div class="grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-							<p>この Provider には Model がありません。</p>
-							<p class="m-0">Model を追加して紐づけてください。</p>
+							<p>Model がありません。</p>
+							<p class="m-0">Model を追加するとここに一覧表示されます。</p>
 						</div>
 					) : (
-						providerModels.map((model) => {
-							const isSelected = model.id === setting.selectedModelId;
-
+						setting.models.map((model) => {
 							return (
 								<article
 									key={model.id}
-									class={`grid cursor-pointer gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)] ${isSelected ? 'border-[color:var(--vscode-focusBorder)]' : ''}`}
-									onClick={() => onSelectModel(model.id)}
+									class="flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]"
 								>
-									<div class="flex flex-wrap items-start justify-between gap-2.5">
-										<div>
-											<h3>{model.name}</h3>
-											<p>{model.modelId}</p>
-										</div>
-										<span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-[0.1em] border-[color:var(--vscode-panel-border)]">{model.enabled ? 'enabled' : 'disabled'}</span>
-									</div>
+									<h3 class="min-w-0 flex-1">{model.name}</h3>
 
-									{model.description ? <p class="m-0 break-words">{model.description}</p> : null}
-
-									<div class="flex flex-wrap gap-2">
+									<div class="flex shrink-0 flex-nowrap gap-2">
 										<button
 											class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]"
 											type="button"
@@ -162,7 +131,7 @@ export function ModelSettingsPage({
 					) : (
 						<div class="grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
 							<p>編集対象を選ぶと、ここで追加・更新できます。</p>
-							<p class="m-0">選択中の Provider に従属して Model を管理します。</p>
+							<p class="m-0">Model を選ぶと、編集や削除を行えます。</p>
 						</div>
 					)}
 				</div>

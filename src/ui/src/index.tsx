@@ -40,7 +40,6 @@ function App() {
 					activeSettingsPanel={app.activeSettingsPanel}
 					selectedProvider={app.selectedProvider}
 					selectedModel={app.selectedModel}
-					providerModels={app.providerModels}
 					syncStatus={app.syncStatus}
 					syncMessage={app.syncMessage}
 					onReturnToWorkspace={app.returnToWorkspace}
@@ -48,8 +47,6 @@ function App() {
 					onOpenProviderEditor={app.openProviderEditor}
 					onOpenModelEditor={app.openModelEditor}
 					onCloseEditor={app.closeEditor}
-					onSelectProvider={app.selectProvider}
-					onSelectModel={app.selectModel}
 					onDeleteProvider={app.deleteProvider}
 					onDeleteModel={app.deleteModel}
 					onSaveProviderDraft={app.saveProviderDraft}
