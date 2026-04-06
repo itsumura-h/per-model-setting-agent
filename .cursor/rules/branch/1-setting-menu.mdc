@@ -43,6 +43,7 @@ alwaysApply: false
 - [x] `src/ui/src/style.css` を import のみ構成にして、自前CSS定義をなくす
 - [x] `runtimeClassRules` を削除して Tailwind / daisyUI のユーティリティクラスを JSX 側へ直接適用する
 - [x] `src/ui/src/index.tsx` の UI とロジックを hook / component に分割し、単一責任に沿って整理する
+- [x] settings panel の `general` / `provider` / `model` を `src/ui/src/pages` 配下へ page component として分離する
 
 ## 参考資料
 - `.cursor/rules/project.mdc`
