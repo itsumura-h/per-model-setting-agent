@@ -74,11 +74,6 @@ export function SettingsView({
 					{activeSettingsPanel === 'general' ? (
 						<GeneralSettingsPage
 							bootstrapState={bootstrapState}
-							selectedProvider={selectedProvider}
-							selectedModel={selectedModel}
-							syncStatus={syncStatus}
-							syncMessage={syncMessage}
-							onOpenSettings={onOpenSettings}
 						/>
 					) : null}
 

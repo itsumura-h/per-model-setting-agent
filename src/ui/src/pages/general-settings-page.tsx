@@ -2,11 +2,6 @@ import type { GeneralSettingsPageProps } from './types';
 
 export function GeneralSettingsPage({
 	bootstrapState,
-	selectedProvider,
-	selectedModel,
-	syncStatus,
-	syncMessage,
-	onOpenSettings,
 }: GeneralSettingsPageProps) {
 	return (
 		<div class="grid min-w-0 gap-4">

@@ -3,11 +3,6 @@ import type { EditorState, ExtensionState, SettingsSection } from '../types';
 
 export type GeneralSettingsPageProps = {
 	bootstrapState: ExtensionState;
-	selectedProvider?: ProviderConfig;
-	selectedModel?: ModelConfig;
-	syncStatus: 'idle' | 'saving' | 'saved' | 'error';
-	syncMessage: string;
-	onOpenSettings: (section: SettingsSection) => void;
 };
 
 export type ProviderSettingsPageProps = {
