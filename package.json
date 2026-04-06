@@ -59,11 +59,11 @@
     "src/ui/dist/**"
   ],
   "scripts": {
-    "build": "pnpm run build:web && pnpm run build:extension",
-    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
-    "build:web": "pnpm --dir src/ui build",
+    "_build": "pnpm run _build:web && pnpm run _build:extension",
+    "_build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "_build:web": "pnpm --dir src/ui build",
     "dev:web": "pnpm --dir src/ui dev",
-    "package:vsix": "pnpm run build && pnpm exec vsce package"
+    "build": "pnpm run _build && pnpm exec vsce package"
   },
   "keywords": [],
   "author": "",

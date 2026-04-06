@@ -86,7 +86,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 
 	const selectedProvider = getSelectedProvider(setting);
 	const selectedModel = getSelectedModel(setting);
-	const providerModels = useMemo(() => getProviderModels(setting, setting.selectedProviderId), [setting]);
+	const providerModels = useMemo(() => setting.models.filter((model) => model.enabled), [setting]);
 	const configurationIssues = getConfigurationIssues(setting);
 
 	function persistSetting(nextSetting: SettingConfig) {
@@ -133,8 +133,11 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 	}
 
 	function selectModel(modelId: string) {
+		const nextModel = setting.models.find((model) => model.id === modelId);
+
 		updateSelection({
 			...setting,
+			selectedProviderId: nextModel?.providerId ?? setting.selectedProviderId,
 			selectedModelId: modelId,
 		});
 	}
@@ -256,16 +259,19 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			return;
 		}
 
-		if (!window.confirm(`Provider「${provider.name}」を削除しますか？関連する Model も削除されます。`)) {
-			return;
-		}
-
 		const nextProviders = setting.providers.filter((entry) => entry.id !== providerId);
 		const nextModels = setting.models.filter((entry) => entry.providerId !== providerId);
+		const nextSelection = resolveSelectionAfterMutation({
+			nextProviders,
+			nextModels,
+			previousProviderId: setting.selectedProviderId,
+			previousModelId: setting.selectedModelId,
+		});
 		persistSetting({
 			...setting,
 			providers: nextProviders,
 			models: nextModels,
+			...nextSelection,
 		});
 
 		if (editor?.kind === 'provider' && editor.draft.id === providerId) {
@@ -279,14 +285,17 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			return;
 		}
 
-		if (!window.confirm(`Model「${model.name}」を削除しますか？`)) {
-			return;
-		}
-
 		const nextModels = setting.models.filter((entry) => entry.id !== modelId);
+		const nextSelection = resolveSelectionAfterMutation({
+			nextProviders: setting.providers,
+			nextModels,
+			previousProviderId: setting.selectedProviderId,
+			previousModelId: setting.selectedModelId,
+		});
 		persistSetting({
 			...setting,
 			models: nextModels,
+			...nextSelection,
 		});
 
 		if (editor?.kind === 'model' && editor.draft.id === modelId) {
@@ -439,5 +448,43 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		openSettings,
 		returnToWorkspace,
 		getProviderPreset,
+	};
+}
+
+function resolveSelectionAfterMutation({
+	nextProviders,
+	nextModels,
+	previousProviderId,
+	previousModelId,
+}: {
+	nextProviders: SettingConfig['providers'];
+	nextModels: SettingConfig['models'];
+	previousProviderId: string;
+	previousModelId: string;
+}) {
+	const selectedProviderHasModels = nextModels.some((model) => model.providerId === previousProviderId);
+	if (selectedProviderHasModels) {
+		const selectedProviderModels = nextModels.filter((model) => model.providerId === previousProviderId);
+		const selectedModelId = selectedProviderModels.some((model) => model.id === previousModelId)
+			? previousModelId
+			: selectedProviderModels[0]?.id ?? '';
+
+		return {
+			selectedProviderId: previousProviderId,
+			selectedModelId,
+		};
+	}
+
+	const firstModel = nextModels[0];
+	if (firstModel) {
+		return {
+			selectedProviderId: firstModel.providerId,
+			selectedModelId: firstModel.id,
+		};
+	}
+
+	return {
+		selectedProviderId: nextProviders[0]?.id ?? '',
+		selectedModelId: '',
 	};
 }
