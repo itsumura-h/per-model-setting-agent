@@ -1,0 +1,199 @@
+import type { ModelSettingsPageProps } from './types';
+import { fieldClass } from '../consts';
+
+export function ModelSettingsPage({
+	editor,
+	setting,
+	onOpenModelEditor,
+	onCloseEditor,
+	onDeleteModel,
+	onSaveModelDraft,
+	onSetModelProviderId,
+	onUpdateModelDraft,
+}: ModelSettingsPageProps) {
+	const editingModelId = editor && editor.kind === 'model' && editor.mode === 'edit' ? editor.draft.id : null;
+	const isCreatingModel = editor?.kind === 'model' && editor.mode === 'create';
+	const isEditingModel = Boolean(editingModelId);
+
+	return (
+		<div class="grid min-w-0 gap-4">
+				<div class="flex flex-wrap items-start justify-between gap-3">
+					<div>
+						<h2>Model</h2>
+					</div>
+			</div>
+
+			<div class="grid min-w-0 gap-3.5 rounded-[18px] border border-[color:var(--vscode-panel-border)] p-4">
+				<div class="grid min-w-0 gap-3">
+						{setting.models.length === 0 ? (
+							<div class="grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
+								<p>Model がありません。</p>
+								<p class="m-0">Model を追加するとここに一覧表示されます。</p>
+							</div>
+						) : (
+							setting.models.map((model) => {
+								const isEditingCurrentModel = editingModelId === model.id;
+
+								return (
+									<article
+										key={model.id}
+										class={`grid gap-3 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)] ${isEditingCurrentModel ? 'border-[color:var(--vscode-focusBorder)]' : ''}`}
+									>
+										{isEditingCurrentModel ? (
+											<div class="grid gap-3">
+												<div class="flex flex-wrap items-start justify-between gap-3">
+													<div>
+														<h3>{model.name}</h3>
+														<p class="m-0">この Model を一覧内で編集しています。</p>
+													</div>
+													<span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-[0.1em] border-[color:var(--vscode-focusBorder)]">
+														編集中
+													</span>
+												</div>
+
+												{editor && editor.kind === 'model' ? (
+													<div class="grid gap-3.5">
+														{editor.errorMessage ? <p class="m-0">{editor.errorMessage}</p> : null}
+														<label class="grid min-w-0 gap-2">
+															<span>Provider</span>
+															<select class={fieldClass} value={editor.draft.providerId} onChange={(event) => onSetModelProviderId((event.currentTarget as HTMLSelectElement).value)}>
+																{setting.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
+																{setting.providers.map((provider) => (
+																	<option key={provider.id} value={provider.id}>
+																		{provider.name}
+																	</option>
+																))}
+															</select>
+														</label>
+														<div class="grid min-w-0 gap-3 grid-cols-1 md:grid-cols-2">
+															<label class="grid min-w-0 gap-2">
+																<span>Name</span>
+																<input class={fieldClass} value={editor.draft.name} onInput={(event) => onUpdateModelDraft({ name: (event.currentTarget as HTMLInputElement).value })} />
+															</label>
+															<label class="grid min-w-0 gap-2">
+																<span>Model ID</span>
+																<input class={fieldClass} value={editor.draft.modelId} onInput={(event) => onUpdateModelDraft({ modelId: (event.currentTarget as HTMLInputElement).value })} />
+															</label>
+														</div>
+														<label class="grid min-w-0 gap-2">
+															<span>Description</span>
+															<textarea class={fieldClass} rows={3} value={editor.draft.description} onInput={(event) => onUpdateModelDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
+														</label>
+														<label class="inline-flex items-center gap-2.5">
+															<input type="checkbox" checked={editor.draft.enabled} onChange={(event) => onUpdateModelDraft({ enabled: (event.currentTarget as HTMLInputElement).checked })} />
+															<span>Enabled</span>
+														</label>
+														<div class="flex flex-wrap items-center gap-2.5">
+															<button class="btn btn-ghost btn-sm font-bold border border-[color:var(--vscode-focusBorder)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={onSaveModelDraft}>
+																保存
+															</button>
+															<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={onCloseEditor}>
+																キャンセル
+															</button>
+														</div>
+													</div>
+												) : null}
+											</div>
+										) : (
+											<>
+												<div class="flex flex-wrap items-start justify-between gap-3">
+													<h3 class="min-w-0 flex-1">{model.name}</h3>
+													<div class="flex shrink-0 flex-nowrap gap-2">
+														<button
+															class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]"
+															type="button"
+															onClick={(event) => {
+																event.stopPropagation();
+																onOpenModelEditor(model);
+															}}
+														>
+															編集
+														</button>
+														<button
+															class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-errorForeground)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]"
+															type="button"
+															onClick={(event) => {
+																event.stopPropagation();
+																onDeleteModel(model.id);
+															}}
+														>
+															削除
+														</button>
+													</div>
+												</div>
+												<div class="flex flex-wrap gap-2.5 text-sm">
+													<span>{setting.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未設定'}</span>
+													<span>{model.enabled ? 'enabled' : 'disabled'}</span>
+												</div>
+												{model.description ? <p class="m-0 break-words">{model.description}</p> : null}
+											</>
+										)}
+									</article>
+								);
+							})
+						)}
+
+					<details class={`collapse collapse-arrow rounded-2xl border border-[color:var(--vscode-panel-border)] ${isCreatingModel ? 'collapse-open' : ''}`} open={isCreatingModel}>
+						<summary
+							class="collapse-title font-semibold"
+							onClick={(event) => {
+								if (!isCreatingModel) {
+									onOpenModelEditor();
+								}
+
+								event.preventDefault();
+							}}
+						>
+							Model を追加
+						</summary>
+						<div class="collapse-content grid gap-3.5">
+							<p>カードを選ぶとここで追加できます。</p>
+							{editor && editor.kind === 'model' ? (
+								<div class="grid gap-3.5">
+									{editor.errorMessage ? <p class="m-0">{editor.errorMessage}</p> : null}
+									<label class="grid min-w-0 gap-2">
+										<span>Provider</span>
+										<select class={fieldClass} value={editor.draft.providerId} onChange={(event) => onSetModelProviderId((event.currentTarget as HTMLSelectElement).value)}>
+											{setting.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
+											{setting.providers.map((provider) => (
+												<option key={provider.id} value={provider.id}>
+													{provider.name}
+												</option>
+											))}
+										</select>
+									</label>
+									<div class="grid min-w-0 gap-3 grid-cols-1 md:grid-cols-2">
+										<label class="grid min-w-0 gap-2">
+											<span>Name</span>
+											<input class={fieldClass} value={editor.draft.name} onInput={(event) => onUpdateModelDraft({ name: (event.currentTarget as HTMLInputElement).value })} />
+										</label>
+										<label class="grid min-w-0 gap-2">
+											<span>Model ID</span>
+											<input class={fieldClass} value={editor.draft.modelId} onInput={(event) => onUpdateModelDraft({ modelId: (event.currentTarget as HTMLInputElement).value })} />
+										</label>
+									</div>
+									<label class="grid min-w-0 gap-2">
+										<span>Description</span>
+										<textarea class={fieldClass} rows={3} value={editor.draft.description} onInput={(event) => onUpdateModelDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
+									</label>
+									<label class="inline-flex items-center gap-2.5">
+										<input type="checkbox" checked={editor.draft.enabled} onChange={(event) => onUpdateModelDraft({ enabled: (event.currentTarget as HTMLInputElement).checked })} />
+										<span>Enabled</span>
+									</label>
+									<div class="flex flex-wrap items-center gap-2.5">
+										<button class="btn btn-ghost btn-sm font-bold border border-[color:var(--vscode-focusBorder)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={onSaveModelDraft}>
+											保存
+										</button>
+										<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={onCloseEditor}>
+											キャンセル
+										</button>
+									</div>
+								</div>
+							) : null}
+						</div>
+					</details>
+				</div>
+			</div>
+		</div>
+	);
+}

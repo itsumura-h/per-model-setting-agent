@@ -1,24 +1,231 @@
-import fs from 'node:fs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import * as vscode from 'vscode';
 
+import {
+	createDefaultSettingConfig,
+	hydrateSettingConfig,
+	normalizeSettingConfig,
+	serializeSettingConfig,
+	type SettingConfig,
+} from './core/index';
+
 const VIEW_ID = 'perModelSettingAgent.demoView';
 const VIEW_CONTAINER_ID = 'perModelSettingAgentContainer';
+const SECRET_PREFIX = 'permosa.provider.apiKey.';
+const SETTINGS_PANEL_VIEW_TYPE = 'perModelSettingAgent.settingsPanel';
 
-class DemoWebviewViewProvider implements vscode.WebviewViewProvider {
-	constructor(private readonly extensionPath: string) {}
+type WebviewSurface = 'workspace' | 'settings';
 
-	resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
-		webviewView.webview.options = {
+type WebviewState = {
+	surface: WebviewSurface;
+	setting: SettingConfig;
+	filePath: string;
+	loadMode: 'default' | 'loaded' | 'corrupt';
+	message: string;
+	errorMessage?: string;
+	lastSavedAt?: string;
+};
+
+type WebviewMessage =
+	| {
+			type: 'request-state';
+	  }
+	| {
+			type: 'save-state';
+			setting: SettingConfig;
+	  };
+
+type IncomingWebviewMessage = WebviewMessage | { type: 'open-settings-panel' } | { type: 'open-main-panel' };
+
+class SettingWebviewController implements vscode.WebviewViewProvider {
+	private view?: vscode.WebviewView;
+	private readonly panels = new Set<vscode.WebviewPanel>();
+
+	private state: Omit<WebviewState, 'surface'> = {
+		setting: createDefaultSettingConfig(),
+		filePath: getSettingsFilePath(),
+		loadMode: 'default',
+		message: '初期設定を読み込んでいます。',
+	};
+
+	constructor(private readonly context: vscode.ExtensionContext) {}
+
+	async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
+		this.view = webviewView;
+		const webview = webviewView.webview;
+		webview.options = {
 			enableScripts: true,
-			localResourceRoots: [vscode.Uri.file(getUiDistPath(this.extensionPath))],
+			localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'src', 'ui', 'dist')],
 		};
-		webviewView.webview.html = getWebviewHtml(webviewView.webview, this.extensionPath);
+
+		this.state = await this.loadState();
+		webview.html = await getWebviewHtml(webview, this.context.extensionUri, this.buildState('workspace'));
+		this.registerMessageHandlers(webview, 'workspace');
+
+		webviewView.onDidDispose(() => {
+			if (this.view === webviewView) {
+				this.view = undefined;
+			}
+		});
+	}
+
+	private async loadState(): Promise<Omit<WebviewState, 'surface'>> {
+		const filePath = getSettingsFilePath();
+		const defaultState = createDefaultSettingConfig();
+
+		try {
+			const persisted = await readPersistedSettingFile(filePath);
+			if (!persisted) {
+				return {
+					setting: defaultState,
+					filePath,
+					loadMode: 'default',
+					message: '設定ファイルが見つかりません。既定の provider / model を表示しています。',
+				};
+			}
+
+			const providerApiKeys = await readProviderApiKeys(this.context, persisted.providers);
+			const setting = hydrateSettingConfig(persisted, providerApiKeys);
+
+			return {
+				setting,
+				filePath,
+				loadMode: 'loaded',
+				message: '設定ファイルを読み込みました。',
+			};
+		} catch (error) {
+			return {
+				setting: defaultState,
+				filePath,
+				loadMode: 'corrupt',
+				message: '設定ファイルの読み込みに失敗しました。既定の provider / model を表示しています。',
+				errorMessage: error instanceof Error ? error.message : String(error),
+			};
+		}
+	}
+
+	private async saveState(nextSetting: SettingConfig) {
+		try {
+			const normalized = normalizeSettingConfig(nextSetting);
+			const persisted = serializeSettingConfig(normalized);
+			await ensureSettingsDirectory();
+			await fs.writeFile(getSettingsFilePath(), `${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
+			await persistProviderApiKeys(this.context, this.state.setting.providers, normalized.providers);
+
+			this.state = {
+				setting: normalized,
+				filePath: getSettingsFilePath(),
+				loadMode: 'loaded',
+				message: '設定を保存しました。',
+				lastSavedAt: new Date().toISOString(),
+			};
+
+			await this.broadcastState();
+		} catch (error) {
+			this.state = {
+				...this.state,
+				message: '設定の保存に失敗しました。',
+				errorMessage: error instanceof Error ? error.message : String(error),
+			};
+			await this.broadcastMessage({
+				type: 'state-error',
+				message: this.state.errorMessage ?? '設定の保存に失敗しました。',
+			});
+		}
+	}
+
+	private async openSettingsPanel() {
+		const existingPanel = [...this.panels][0];
+		if (existingPanel) {
+			existingPanel.reveal(vscode.ViewColumn.Active);
+			return;
+		}
+
+		const panel = vscode.window.createWebviewPanel(
+			SETTINGS_PANEL_VIEW_TYPE,
+			'Per Model Setting Agent: Settings',
+			vscode.ViewColumn.Active,
+			{
+				enableScripts: true,
+				retainContextWhenHidden: true,
+				localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'src', 'ui', 'dist')],
+			},
+		);
+
+		this.panels.add(panel);
+		panel.onDidDispose(() => {
+			this.panels.delete(panel);
+		});
+
+		panel.webview.html = await getWebviewHtml(panel.webview, this.context.extensionUri, this.buildState('settings'));
+		this.registerMessageHandlers(panel.webview, 'settings');
+	}
+
+	private async broadcastState() {
+		await this.broadcastMessage({
+			type: 'state-saved',
+			state: this.buildState('workspace'),
+		});
+		await this.broadcastToSettingsPanels();
+	}
+
+	private async broadcastToSettingsPanels() {
+		for (const panel of this.panels) {
+			await panel.webview.postMessage({
+				type: 'state-saved',
+				state: this.buildState('settings'),
+			});
+		}
+	}
+
+	private async broadcastMessage(message: unknown) {
+		if (this.view) {
+			await this.view.webview.postMessage(message);
+		}
+
+		for (const panel of this.panels) {
+			await panel.webview.postMessage(message);
+		}
+	}
+
+	private buildState(surface: WebviewSurface): WebviewState {
+		return {
+			...this.state,
+			surface,
+		};
+	}
+
+	private registerMessageHandlers(webview: vscode.Webview, surface: WebviewSurface) {
+		webview.onDidReceiveMessage(async (message: IncomingWebviewMessage) => {
+			if (message.type === 'request-state') {
+				await webview.postMessage({
+					type: 'state-saved',
+					state: this.buildState(surface),
+				});
+				return;
+			}
+
+			if (message.type === 'save-state') {
+				await this.saveState(message.setting);
+				return;
+			}
+
+			if (message.type === 'open-settings-panel') {
+				await this.openSettingsPanel();
+				return;
+			}
+
+			if (message.type === 'open-main-panel') {
+				await vscode.commands.executeCommand(`workbench.view.extension.${VIEW_CONTAINER_ID}`);
+			}
+		});
 	}
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	const provider = new DemoWebviewViewProvider(context.extensionPath);
+	const provider = new SettingWebviewController(context);
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, {
@@ -47,19 +254,98 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 	);
+
 }
 
 export function deactivate() {}
 
-function getUiDistPath(extensionPath: string) {
-	return path.join(extensionPath, 'src', 'ui', 'dist');
+function getSettingsFilePath() {
+	return path.join(os.homedir(), '.permosa', 'setting.json');
 }
 
-function getWebviewHtml(webview: vscode.Webview, extensionPath: string) {
-	const distPath = getUiDistPath(extensionPath);
-	const indexPath = path.join(distPath, 'index.html');
-	const source = fs.readFileSync(indexPath, 'utf8');
+async function ensureSettingsDirectory() {
+	await fs.mkdir(path.dirname(getSettingsFilePath()), { recursive: true });
+}
+
+async function readPersistedSettingFile(filePath: string) {
+	try {
+		const raw = await fs.readFile(filePath, 'utf8');
+		const parsed = JSON.parse(raw) as unknown;
+		return normalizeSettingConfig(parsed as Partial<SettingConfig>);
+	} catch (error) {
+		if (isFileNotFound(error)) {
+			return undefined;
+		}
+
+		throw error;
+	}
+}
+
+function isFileNotFound(error: unknown) {
+	return error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+async function readProviderApiKeys(context: vscode.ExtensionContext, providers: SettingConfig['providers']) {
+	const entries = await Promise.all(
+		providers.map(async (provider) => {
+			const key = await context.secrets.get(getProviderSecretKey(provider.id));
+			return [provider.id, key ?? ''] as const;
+		}),
+	);
+
+	return Object.fromEntries(entries);
+}
+
+async function persistProviderApiKeys(
+	context: vscode.ExtensionContext,
+	previousProviders: SettingConfig['providers'],
+	nextProviders: SettingConfig['providers'],
+) {
+	const previousIds = new Set(previousProviders.map((provider) => provider.id));
+	const nextIds = new Set(nextProviders.map((provider) => provider.id));
+
+	for (const provider of previousProviders) {
+		if (!nextIds.has(provider.id)) {
+			await context.secrets.delete(getProviderSecretKey(provider.id));
+		}
+	}
+
+	for (const provider of nextProviders) {
+		const secretKey = getProviderSecretKey(provider.id);
+		const apiKey = provider.apiKey?.trim() ?? '';
+
+		if (apiKey.length > 0) {
+			await context.secrets.store(secretKey, apiKey);
+			continue;
+		}
+
+		if (previousIds.has(provider.id)) {
+			await context.secrets.delete(secretKey);
+		}
+	}
+}
+
+function getProviderSecretKey(providerId: string) {
+	return `${SECRET_PREFIX}${providerId}`;
+}
+
+function getUiDistPath(extensionUri: vscode.Uri) {
+	return vscode.Uri.joinPath(extensionUri, 'src', 'ui', 'dist');
+}
+
+function serializeStateForScript(state: WebviewState) {
+	return JSON.stringify(state)
+		.replace(/</g, '\\u003c')
+		.replace(/\u2028/g, '\\u2028')
+		.replace(/\u2029/g, '\\u2029');
+}
+
+async function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, state: WebviewState) {
+	const distUri = getUiDistPath(extensionUri);
+	const indexPath = vscode.Uri.joinPath(distUri, 'index.html');
+	const source = await fs.readFile(indexPath.fsPath, 'utf8');
 	const cspSource = webview.cspSource;
+	const serializedState = serializeStateForScript(state);
 
 	return source
 		.replace(/(src|href)="([^"]+)"/g, (fullMatch, attribute, value) => {
@@ -68,7 +354,7 @@ function getWebviewHtml(webview: vscode.Webview, extensionPath: string) {
 			}
 
 			const normalized = value.startsWith('./') ? value.slice(2) : value.startsWith('/') ? value.slice(1) : value;
-			const filePath = path.join(distPath, normalized);
+			const filePath = path.join(distUri.fsPath, normalized);
 			const uri = webview.asWebviewUri(vscode.Uri.file(filePath));
 
 			return `${attribute}="${uri}"`;
@@ -79,6 +365,7 @@ function getWebviewHtml(webview: vscode.Webview, extensionPath: string) {
 	<meta
 		http-equiv="Content-Security-Policy"
 		content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource}; font-src ${cspSource};"
-	/>`,
+	/>
+	<script id="permosa-initial-state" type="application/json">${serializedState}</script>`,
 		);
 }
