@@ -7,7 +7,7 @@ pnpm install
 pnpm run build
 ```
 
-`pnpm run build` は `src/ui` の Vite build を実行し、`src/ui/dist` を作成します。
+`pnpm run build` は `src/ui` の Vite build と `src/extension.ts` の esbuild bundle を実行し、`src/ui/dist` と `dist/extension.js` を作成します。
 
 ## VSIX 作成
 
@@ -18,7 +18,8 @@ pnpm run package:vsix
 このコマンドは以下を順に実行します。
 
 1. `src/ui` を production build
-2. `vsce package` で `.vsix` を生成
+2. `src/extension.ts` を `dist/extension.js` に bundle
+3. `vsce package` で `.vsix` を生成
 
 ## VS Code への読み込み
 

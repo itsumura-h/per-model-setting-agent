@@ -1,16 +1,14 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const vscode = require('vscode');
+import fs from 'node:fs';
+import path from 'node:path';
+import * as vscode from 'vscode';
 
 const VIEW_ID = 'perModelSettingAgent.demoView';
 const VIEW_CONTAINER_ID = 'perModelSettingAgentContainer';
 
-class DemoWebviewViewProvider {
-	constructor(extensionPath) {
-		this.extensionPath = extensionPath;
-	}
+class DemoWebviewViewProvider implements vscode.WebviewViewProvider {
+	constructor(private readonly extensionPath: string) {}
 
-	resolveWebviewView(webviewView) {
+	resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
 		webviewView.webview.options = {
 			enableScripts: true,
 			localResourceRoots: [vscode.Uri.file(getUiDistPath(this.extensionPath))],
@@ -19,8 +17,9 @@ class DemoWebviewViewProvider {
 	}
 }
 
-function activate(context) {
+export function activate(context: vscode.ExtensionContext) {
 	const provider = new DemoWebviewViewProvider(context.extensionPath);
+
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, {
 			webviewOptions: {
@@ -50,11 +49,13 @@ function activate(context) {
 	);
 }
 
-function getUiDistPath(extensionPath) {
+export function deactivate() {}
+
+function getUiDistPath(extensionPath: string) {
 	return path.join(extensionPath, 'src', 'ui', 'dist');
 }
 
-function getWebviewHtml(webview, extensionPath) {
+function getWebviewHtml(webview: vscode.Webview, extensionPath: string) {
 	const distPath = getUiDistPath(extensionPath);
 	const indexPath = path.join(distPath, 'index.html');
 	const source = fs.readFileSync(indexPath, 'utf8');
@@ -81,10 +82,3 @@ function getWebviewHtml(webview, extensionPath) {
 	/>`,
 		);
 }
-
-function deactivate() {}
-
-module.exports = {
-	activate,
-	deactivate,
-};
