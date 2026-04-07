@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import OpenAI, { APIError, type ChatCompletion } from 'openai';
+import OpenAI, { APIError } from 'openai';
 
 import { createWorkspaceFileEditSafetyNotice, getWorkspaceExecutionContext } from '../core/index';
 import type { ProviderConfig, SettingConfig, WorkspaceConversationMessage } from '../core/index';
@@ -515,7 +515,7 @@ function inferWorkspaceAgentFileEdits(prompt: string): WorkspaceAgentFileEdit[] 
 	}));
 }
 
-function extractChatCompletionText(completion: ChatCompletion) {
+function extractChatCompletionText(completion: OpenAI.Chat.Completions.ChatCompletion) {
 	return completion.choices
 		.map((choice) => extractChatMessageContent(choice?.message?.content))
 		.filter((content): content is string => content.trim().length > 0)
@@ -576,7 +576,7 @@ export function formatWorkspaceAgentError(error: unknown) {
 			`OpenAI API error (${error.status})`,
 			error.name,
 			error.message,
-			error.request_id ? `request_id: ${error.request_id}` : '',
+			error.requestID ? `request_id: ${error.requestID}` : '',
 		].filter((value) => value.trim().length > 0);
 
 		return details.join('\n');

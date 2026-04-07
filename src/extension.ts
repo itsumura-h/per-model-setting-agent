@@ -14,6 +14,9 @@ import {
 	createSuccessWorkspaceExecutionState,
 	createDefaultSettingConfig,
 	hydrateSettingConfig,
+	getSelectedModel,
+	getSelectedProvider,
+	getConfigurationIssues,
 	normalizeSettingConfig,
 	serializeSettingConfig,
 	type SettingConfig,
@@ -157,10 +160,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			await ensureSettingsDirectory();
 			await fs.writeFile(getSettingsFilePath(), `${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
 			await persistProviderApiKeys(this.context, this.state.setting.providers, normalized.providers);
-			const workspaceExecution =
-				this.state.workspaceExecution.status === 'running'
-					? this.state.workspaceExecution
-					: createIdleWorkspaceExecutionState(normalized);
+			const workspaceExecution = remapWorkspaceExecutionForSetting(this.state.workspaceExecution, normalized);
 
 			this.state = {
 				...this.state,
@@ -679,6 +679,23 @@ function updateWorkspaceExecutionStreamingText(
 		...executionState,
 		response: accumulatedText,
 		messages,
+	};
+}
+
+function remapWorkspaceExecutionForSetting(
+	executionState: WorkspaceExecutionState,
+	setting: SettingConfig,
+): WorkspaceExecutionState {
+	const provider = getSelectedProvider(setting);
+	const model = getSelectedModel(setting);
+
+	return {
+		...executionState,
+		providerName: provider?.name ?? '未選択',
+		modelName: model?.name ?? '未選択',
+		baseUrl: provider?.baseUrl ?? '未設定',
+		configurationIssues: getConfigurationIssues(setting),
+		timestamp: new Date().toISOString(),
 	};
 }
 

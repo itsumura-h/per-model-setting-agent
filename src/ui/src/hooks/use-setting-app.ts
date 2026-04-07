@@ -7,6 +7,7 @@ import {
 	createIdleWorkspaceFileEditState,
 	createRunningWorkspaceExecutionState,
 	createSuccessWorkspaceExecutionState,
+	createWorkspaceFileEditSafetyNotice,
 	getConfigurationIssues,
 	getSelectedModel,
 	getSelectedProvider,
@@ -186,17 +187,19 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 
 	function persistSetting(nextSetting: SettingConfig) {
 		const normalized = normalizeSettingConfig(nextSetting);
+		const nextWorkspaceExecution = remapWorkspaceExecutionForSetting(workspaceExecution, normalized);
 		setSetting(normalized);
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
-			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
+			workspaceExecution: remapWorkspaceExecutionForSetting(
+				current.workspaceExecution ?? createIdleWorkspaceExecutionState(normalized),
+				normalized,
+			),
 			message: '設定を保存しています。',
 			errorMessage: undefined,
 		}));
-		setWorkspaceExecution((current) =>
-			current.status === 'running' ? current : createIdleWorkspaceExecutionState(normalized),
-		);
+		setWorkspaceExecution(nextWorkspaceExecution);
 		setSyncStatus('saving');
 		setSyncMessage('設定を保存しています。');
 
@@ -213,7 +216,10 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
-			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
+			workspaceExecution: remapWorkspaceExecutionForSetting(
+				current.workspaceExecution ?? createIdleWorkspaceExecutionState(normalized),
+				normalized,
+			),
 			message: 'ローカルプレビューを更新しました。',
 			errorMessage: undefined,
 		}));
@@ -657,7 +663,6 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		selectModel,
 		runAgent,
 		submitWorkspaceFileEdit,
-		retryAgent: () => runAgent(workspaceExecution.prompt),
 		openProviderEditor,
 		openModelEditor,
 		closeEditor,
@@ -740,5 +745,23 @@ function resolveSelectionAfterMutation({
 	return {
 		selectedProviderId: nextProviders[0]?.id ?? '',
 		selectedModelId: '',
+	};
+}
+
+function remapWorkspaceExecutionForSetting(
+	execution: WorkspaceExecutionState,
+	setting: SettingConfig,
+): WorkspaceExecutionState {
+	const provider = getSelectedProvider(setting);
+	const model = getSelectedModel(setting);
+
+	return {
+		...execution,
+		providerName: provider?.name ?? '未選択',
+		modelName: model?.name ?? '未選択',
+		baseUrl: provider?.baseUrl ?? '未設定',
+		configurationIssues: getConfigurationIssues(setting),
+		fileEditSafetyNotice: createWorkspaceFileEditSafetyNotice(),
+		timestamp: new Date().toISOString(),
 	};
 }

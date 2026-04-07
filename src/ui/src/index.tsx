@@ -29,7 +29,6 @@ function App() {
 						onPromptInput={app.setPrompt}
 						onSelectModel={app.selectModel}
 						onRunAgent={app.runAgent}
-						onRetryAgent={app.retryAgent}
 						onFileEditRelativePathInput={app.setFileEditRelativePath}
 						onFileEditContentInput={app.setFileEditContent}
 						onSubmitFileEdit={app.submitWorkspaceFileEdit}
