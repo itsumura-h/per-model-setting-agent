@@ -1,211 +1,239 @@
-import type { ModelConfig, ProviderConfig } from '../../../core/index';
-import type { ExtensionState, RunPreview } from '../types';
+import type { WorkspaceExecutionState } from '../../../core/index';
+import { fieldClass } from '../consts';
+import type { ExtensionState } from '../types';
 
 type WorkspaceViewProps = {
 	bootstrapState: ExtensionState;
 	setting: {
 		selectedProviderId: string;
 		selectedModelId: string;
-		providers: ProviderConfig[];
+		providers: { id: string; name: string }[];
+		models: { id: string; providerId: string; name: string; enabled: boolean }[];
 	};
-	providerModels: ModelConfig[];
-	runResult: RunPreview;
-	settingSummary: string[];
+	workspaceExecution: WorkspaceExecutionState;
+	workspaceFileEdit: ExtensionState['workspaceFileEdit'];
 	configurationIssues: string[];
 	prompt: string;
+	fileEditRelativePath: string;
+	fileEditContent: string;
 	syncStatus: 'idle' | 'saving' | 'saved' | 'error';
 	syncMessage: string;
 	onPromptInput: (value: string) => void;
-	onSelectProvider: (providerId: string) => void;
 	onSelectModel: (modelId: string) => void;
-	onRunPreview: () => void;
+	onRunAgent: () => void;
+	onRetryAgent: () => void;
+	onFileEditRelativePathInput: (value: string) => void;
+	onFileEditContentInput: (value: string) => void;
+	onSubmitFileEdit: () => void;
 	onOpenSettings: () => void;
 };
+
+function buttonClass(disabled?: boolean) {
+	return [
+		'inline-flex items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold transition-transform hover:-translate-y-px focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]',
+		'border-[color:var(--vscode-panel-border)] hover:border-[color:var(--vscode-focusBorder)]',
+		disabled ? 'cursor-not-allowed opacity-50' : '',
+	]
+		.filter(Boolean)
+		.join(' ');
+}
+
+function syncToneClass(syncStatus: WorkspaceViewProps['syncStatus']) {
+	switch (syncStatus) {
+		case 'saving':
+			return 'text-[color:var(--vscode-descriptionForeground)]';
+		case 'saved':
+			return 'text-[color:var(--vscode-terminal-ansiGreen)]';
+		case 'error':
+			return 'text-[color:var(--vscode-errorForeground)]';
+		default:
+			return 'text-[color:var(--vscode-descriptionForeground)]';
+	}
+}
 
 export function WorkspaceView({
 	bootstrapState,
 	setting,
-	providerModels,
-	runResult,
-	settingSummary,
+	workspaceExecution,
+	workspaceFileEdit,
 	configurationIssues,
 	prompt,
+	fileEditRelativePath,
+	fileEditContent,
 	syncStatus,
 	syncMessage,
 	onPromptInput,
-	onSelectProvider,
 	onSelectModel,
-	onRunPreview,
+	onRunAgent,
+	onRetryAgent,
+	onFileEditRelativePathInput,
+	onFileEditContentInput,
+	onSubmitFileEdit,
 	onOpenSettings,
 }: WorkspaceViewProps) {
+	const trimmedPrompt = prompt.trim();
+	const canSubmit = trimmedPrompt.length > 0 && workspaceExecution.status !== 'running';
+	const canRetry = workspaceExecution.canRetry && trimmedPrompt.length > 0;
+	const trimmedFileEditRelativePath = fileEditRelativePath.trim();
+	const canSaveFile = trimmedFileEditRelativePath.length > 0 && workspaceFileEdit.status !== 'saving';
+	const availableModels = setting.models.filter((model) => model.enabled);
+
 	return (
-		<>
-			<header class="flex flex-wrap items-start justify-between gap-4">
-				<div class="min-w-0">
-					<p class="m-0 mb-2 text-xs font-bold uppercase tracking-[0.16em]">Per Model Setting Agent</p>
-					<h1>設定メニュー付きのメインパネル</h1>
-					<p class="m-0 mt-2 max-w-[72ch]">
-						Provider / Model の選択と CRUD を同じ画面で扱い、`~/.permosa/setting.json` に保存します。
-					</p>
+		<section class="grid min-w-0 gap-4">
+			<header class="flex flex-wrap items-start justify-between gap-3">
+				<div class="grid min-w-0 gap-1">
+					<h2 class="m-0">Workspace</h2>
+					<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">{bootstrapState.message}</p>
 				</div>
-
-				<div class="ml-auto flex flex-wrap items-center gap-3">
-					<div class="grid justify-items-end gap-1">
-						<span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-[0.1em] border-[color:var(--vscode-panel-border)]">{syncStatus}</span>
-						<span class="text-sm">{syncMessage}</span>
-					</div>
-					<button
-						class="btn btn-circle btn-ghost h-11 w-11 p-0 text-lg border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]"
-						type="button"
-						onClick={onOpenSettings}
-						aria-label="設定を新しいタブで開く"
-					>
-						⚙
-					</button>
-				</div>
+				<button class={buttonClass()} type="button" onClick={onOpenSettings}>
+					設定
+				</button>
 			</header>
+			<p class={`m-0 text-sm ${syncToneClass(syncStatus)}`}>{syncMessage}</p>
 
-			<section
-				class={`grid gap-2 px-4 py-3 rounded-2xl border ${
-					bootstrapState.loadMode === 'loaded'
-						? 'border-[color:var(--vscode-terminal-ansiGreen)]'
-						: bootstrapState.loadMode === 'corrupt'
-							? 'border-[color:var(--vscode-errorForeground)]'
-							: 'border-[color:var(--vscode-panel-border)]'
-				}`}
-			>
-				<div>
-					<p class="text-xs font-bold uppercase tracking-[0.12em]">設定ファイル</p>
-					<p class="m-0">{bootstrapState.message}</p>
-				</div>
-				<div class="flex flex-wrap gap-3 text-sm">
-					<span>{bootstrapState.filePath}</span>
-					{bootstrapState.lastSavedAt ? <span>最終保存: {bootstrapState.lastSavedAt}</span> : null}
-				</div>
-				{bootstrapState.errorMessage ? <pre class="m-0 whitespace-pre-wrap">{bootstrapState.errorMessage}</pre> : null}
-			</section>
-
-			<section class="grid min-w-0 items-start gap-4 grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.9fr)]">
-				<section class="grid min-w-0 gap-4 p-4 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-					<div class="flex flex-wrap items-start justify-between gap-3">
-						<div>
-							<h2>実行プレビュー</h2>
-							<p>現在の Provider / Model を使って、実行前の状態を確認します。</p>
-						</div>
-						<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={onOpenSettings}>
-							設定を開く
-						</button>
-					</div>
-
-					<div class="grid min-w-0 gap-3 grid-cols-1 md:grid-cols-2">
-						<label class="grid min-w-0 gap-2">
-							<span>Provider</span>
-							<select value={setting.selectedProviderId} onChange={(event) => onSelectProvider((event.currentTarget as HTMLSelectElement).value)}>
-								{setting.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
-								{setting.providers.map((provider) => (
-									<option key={provider.id} value={provider.id}>
-										{provider.name}
-									</option>
-								))}
-							</select>
-						</label>
-
-						<label class="grid min-w-0 gap-2">
-							<span>Model</span>
-							<select value={setting.selectedModelId} onChange={(event) => onSelectModel((event.currentTarget as HTMLSelectElement).value)}>
-								{providerModels.length === 0 ? <option value="">Model を追加してください</option> : null}
-								{providerModels.map((model) => (
-									<option key={model.id} value={model.id}>
-										{model.name}
-									</option>
-								))}
-							</select>
-						</label>
-					</div>
-
+			<section class="grid min-w-0 gap-3 rounded-2xl border border-[color:var(--vscode-panel-border)] p-4">
+				<div class="grid min-w-0 gap-3 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
 					<label class="grid min-w-0 gap-2">
-						<span>確認メッセージ</span>
-						<textarea
-							rows={5}
-							value={prompt}
-							onInput={(event) => onPromptInput((event.currentTarget as HTMLTextAreaElement).value)}
-							placeholder="設定内容を確認したいメッセージを入力"
-						/>
+						<span class="text-sm text-[color:var(--vscode-descriptionForeground)]">Model</span>
+						<select
+							class="w-full min-w-0 rounded-[14px] border border-[color:var(--vscode-panel-border)] bg-transparent px-3 py-2 text-[color:var(--vscode-foreground)] outline-none"
+							value={setting.selectedModelId}
+							onChange={(event) => onSelectModel((event.currentTarget as HTMLSelectElement).value)}
+						>
+							{availableModels.length === 0 ? <option value="">Model を追加してください</option> : null}
+							{availableModels.map((model) => {
+								const providerName = setting.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未選択';
+								return (
+									<option key={model.id} value={model.id}>
+										{model.name} · {providerName}
+									</option>
+								);
+							})}
+						</select>
 					</label>
 
-					<div class="flex flex-wrap items-center gap-2.5">
-						<button class="btn btn-ghost btn-sm font-bold border border-[color:var(--vscode-focusBorder)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={onRunPreview}>
-							実行
-						</button>
-						<button class="btn btn-ghost btn-sm font-semibold border border-[color:var(--vscode-panel-border)] hover:-translate-y-px hover:border-[color:var(--vscode-focusBorder)] focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]" type="button" onClick={onRunPreview}>
-							再試行
-						</button>
-					</div>
-				</section>
+					<textarea
+						class={`${fieldClass} min-h-[150px] resize-none`}
+						rows={6}
+						value={prompt}
+						onInput={(event) => onPromptInput((event.currentTarget as HTMLTextAreaElement).value)}
+						placeholder="Plan, @ for context, / for commands"
+					/>
 
-				<section class="grid min-w-0 gap-4 p-4 rounded-2xl border border-[color:var(--vscode-panel-border)] content-start">
-					<div class="flex flex-wrap items-start justify-between gap-3">
-						<div>
-							<h2>結果</h2>
-							<p>設定不備がある場合は、ここにガイダンスを表示します。</p>
+							<div class="flex flex-wrap items-center justify-between gap-3">
+								<div class="flex flex-wrap items-center gap-2">
+									<button class={buttonClass(!canRetry)} type="button" onClick={onRetryAgent} disabled={!canRetry}>
+										再試行
+									</button>
+							<button class={buttonClass(!canSubmit)} type="button" onClick={onRunAgent} disabled={!canSubmit}>
+								送信
+							</button>
+						</div>
+						<div class="flex items-center gap-2 text-xs text-[color:var(--vscode-descriptionForeground)]">
+							<span>{workspaceExecution.timestamp ? new Date(workspaceExecution.timestamp).toLocaleTimeString('ja-JP') : ''}</span>
 						</div>
 					</div>
+					<div class="grid gap-2">
+						<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
+							{workspaceExecution.status === 'running'
+								? 'Agent が応答を生成しています。'
+								: workspaceExecution.status === 'error'
+									? '失敗理由を確認して再試行できます。'
+									: workspaceExecution.status === 'success'
+										? '最新の応答を下に表示しています。'
+										: '送信すると extension host 側で実行されます。'}
+						</p>
 
-					<div class="grid min-w-0 gap-3.5">
-						<div class="flex flex-wrap items-center justify-between gap-2.5">
-							<h3>{runResult.title}</h3>
-							<span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-[0.1em] border-[color:var(--vscode-panel-border)]">
-								{runResult.statusLabel}
-							</span>
-						</div>
-						<p class="m-0 leading-7">{runResult.response}</p>
-						<div class="grid gap-1 text-sm">
-							<span>{runResult.providerName}</span>
-							<span>{runResult.modelName}</span>
-							<span>{runResult.baseUrl}</span>
-							<span>{runResult.timestamp}</span>
-						</div>
-						<div class="grid min-w-0 gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-							<span class="text-xs font-bold uppercase tracking-[0.12em]">Prompt</span>
-							<pre>{runResult.prompt}</pre>
-						</div>
-						<div class="grid min-w-0 gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-							<span class="text-xs font-bold uppercase tracking-[0.12em]">Checklist</span>
-							<ul class="m-0 grid gap-2 pl-4">
-								{runResult.checklist.map((item) => (
+							<div class="grid min-w-0 gap-2 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
+								<p class="m-0 text-sm font-semibold text-[color:var(--vscode-foreground)]">
+									{workspaceExecution.fileEditSafetyNotice.title}
+								</p>
+							<ul class="m-0 grid gap-1.5 pl-5 text-sm leading-6 text-[color:var(--vscode-descriptionForeground)]">
+								{workspaceExecution.fileEditSafetyNotice.items.map((item) => (
 									<li key={item}>{item}</li>
 								))}
 							</ul>
 						</div>
-						{runResult.errorMessage ? (
-							<div class="grid min-w-0 gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-								<span class="text-xs font-bold uppercase tracking-[0.12em]">Error</span>
-								<pre>{runResult.errorMessage}</pre>
+
+						<div class="grid min-w-0 gap-3 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
+							{configurationIssues.length > 0 ? (
+								<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
+									{configurationIssues[0]}
+								</p>
+							) : null}
+
+							<p class="m-0 whitespace-pre-wrap break-words leading-7 text-[color:var(--vscode-foreground)]">
+								{workspaceExecution.response}
+							</p>
+
+							{workspaceExecution.errorMessage ? (
+								<p class="m-0 whitespace-pre-wrap break-words leading-7 text-[color:var(--vscode-errorForeground)]">
+									{workspaceExecution.errorMessage}
+								</p>
+							) : null}
+						</div>
+
+						<div class="grid min-w-0 gap-3 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
+							<div class="grid gap-1">
+								<p class="m-0 text-sm font-semibold text-[color:var(--vscode-foreground)]">ファイル編集</p>
+								<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
+									対象ファイル、差分方針、失敗時の戻し方を先に確認してから保存します。
+								</p>
 							</div>
-						) : null}
-					</div>
 
-					<div class="grid min-w-0 gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-						<span class="text-xs font-bold uppercase tracking-[0.12em]">Configuration</span>
-						<ul class="m-0 grid gap-2 pl-4">
-							{settingSummary.map((item) => (
-								<li key={item}>{item}</li>
-							))}
-						</ul>
-					</div>
+							<div class="grid gap-1.5 text-sm text-[color:var(--vscode-descriptionForeground)]">
+								<p class="m-0">対象: {trimmedFileEditRelativePath || '未入力'}</p>
+								<p class="m-0">差分方針: 最小差分を基本に必要な変更だけを適用</p>
+								<p class="m-0">戻し方: 元ファイルを復元するか、差分を取り消してください</p>
+							</div>
 
-					{configurationIssues.length > 0 ? (
-						<div class="grid min-w-0 gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
-							<span class="text-xs font-bold uppercase tracking-[0.12em]">Guidance</span>
-							<ul class="m-0 grid gap-2 pl-4">
-								{configurationIssues.map((item) => (
-									<li key={item}>{item}</li>
-								))}
-							</ul>
+							{workspaceFileEdit.status === 'saving' ? (
+								<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">ファイルを書き込んでいます。</p>
+							) : null}
+							{workspaceFileEdit.status === 'success' ? (
+								<p class="m-0 text-sm text-[color:var(--vscode-terminal-ansiGreen)]">
+									{workspaceFileEdit.resultPath ? `保存しました: ${workspaceFileEdit.resultPath}` : 'ファイルを保存しました。'}
+								</p>
+							) : null}
+							{workspaceFileEdit.status === 'error' && workspaceFileEdit.errorMessage ? (
+								<p class="m-0 whitespace-pre-wrap break-words text-sm text-[color:var(--vscode-errorForeground)]">
+									{workspaceFileEdit.errorMessage}
+								</p>
+							) : null}
+
+							<label class="grid min-w-0 gap-2">
+								<span class="text-sm text-[color:var(--vscode-descriptionForeground)]">Relative path</span>
+								<input
+									class={fieldClass}
+									value={fileEditRelativePath}
+									onInput={(event) => onFileEditRelativePathInput((event.currentTarget as HTMLInputElement).value)}
+									placeholder="src/example.ts"
+								/>
+							</label>
+
+							<label class="grid min-w-0 gap-2">
+								<span class="text-sm text-[color:var(--vscode-descriptionForeground)]">Content</span>
+								<textarea
+									class={`${fieldClass} min-h-[180px] resize-y`}
+									rows={8}
+									value={fileEditContent}
+									onInput={(event) => onFileEditContentInput((event.currentTarget as HTMLTextAreaElement).value)}
+									placeholder="編集したいファイルの内容を入力してください"
+								/>
+							</label>
+
+							<div class="flex flex-wrap items-center gap-2">
+								<button class={buttonClass(!canSaveFile)} type="button" onClick={onSubmitFileEdit} disabled={!canSaveFile}>
+									保存
+								</button>
+								<span class="text-xs text-[color:var(--vscode-descriptionForeground)]">
+									保存前に対象ファイルと戻し方を確認できます。
+								</span>
+							</div>
 						</div>
-					) : null}
-				</section>
+					</div>
+				</div>
 			</section>
-		</>
+		</section>
 	);
 }

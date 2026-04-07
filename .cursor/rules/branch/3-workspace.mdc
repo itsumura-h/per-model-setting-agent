@@ -1,0 +1,75 @@
+---
+description: 3-workspaceブランチでの開発時に読み込む
+alwaysApply: false
+---
+3-workspaceブランチルール
+===
+
+このブランチで実装することは以下の通りです。
+- workspace 画面から AI agent へプロンプトを送信できる導線を追加する
+- setting 画面で編集した Provider / Model 設定を workspace 側の実行処理で利用できるようにする
+- OpenAI SDK と OpenAI Agents JS の設定ガイドに従い、`baseUrl` `modelId` `apiKey` を使って OpenAI 互換 Provider へ接続できるようにする
+- 拡張機能の UI 上に agent の実行状態、レスポンス、失敗理由、再試行導線を表示する
+- agent が workspace 内ファイルを編集できるための安全な実行経路と権限制御を整備する
+- Provider 追加時に workspace 側の呼び出し実装へ分岐を散在させない構造にする
+
+## 進捗
+- [x] 既存の setting UI が `Provider` の `baseUrl` / `apiKey` と `Model` の `modelId` を編集できる状態であることを確認する
+- [x] OpenAI Agents JS の設定ガイドで `setDefaultOpenAIClient()` により `OpenAI({ baseURL, apiKey })` を注入できることを確認する
+- [x] OpenAI Agents JS の設定ガイドで `setOpenAIAPI()` により `responses` / `chat_completions` を切り替えられることを確認する
+- [x] workspace 画面の現状構成と、agent 実行導線を追加すべきコンポーネントを特定する
+- [x] setting 保存データの読込元と workspace 側へ受け渡す経路を整理する
+- [x] `ProviderConfig` と `ModelConfig` から実行時設定を解決する selector / service を定義する
+- [x] `apiKey` の保存先が Secret Storage であることを前提に、workspace 実行直前に解決する方針を固める
+- [x] OpenAI SDK の client factory を実装し、`baseUrl` と `apiKey` を provider 単位で注入できるようにする
+- [x] workspace UI を Cursor / Codex 風の単一入力カード中心に整理する
+- [x] workspace UI から Provider 選択 dropdown を外し、Model 起点で Provider を解決する
+- [x] OpenAI Agents JS の初期化箇所を実装し、必要に応じて `setDefaultOpenAIClient()` を利用する
+- [x] 利用する API を `chat_completions` に寄せることを決め、OpenAI 互換 Provider との互換性を優先する
+- [x] workspace から extension host へ prompt / context / 設定済み model を渡すメッセージ契約を定義する
+- [x] 実行対象 model の選択 UI を workspace 側へ追加し、設定未完了時のガイダンスを表示する
+- [x] agent 実行中表示、成功レスポンス表示、失敗表示、再試行導線を UI に実装する
+- [x] ストリーミング表示は初回実装では採用せず、確実に返る非ストリーミング実行に寄せる
+- [x] workspace 内ファイルを編集する tool / action の責務と許可範囲を定義する
+- [x] ファイル編集前に対象ファイル、差分方針、失敗時の戻し方を UI に通知する設計を固める
+- [x] workspace UI から relative path / content を host へ送り、`writeWorkspaceFileSafely` で workspace 内ファイルを作成・更新できる導線を追加する
+- [x] ファイル保存の成功・失敗を extension state と webview に反映する
+- [x] agent が参照する workspace context の最小セットを決める
+- [x] Provider 固有の差分を adapter / factory に閉じ込め、UI と実行ロジックへ分岐を散在させない
+- [x] AI の response から `fileEdits` JSON を抽出し、`writeWorkspaceFileSafely` に流して workspace 内ファイルを作成・更新できるようにする
+- [x] ファイル編集の成功・失敗を `workspace-file-edit-state` として UI に返す
+- [ ] CometAPI / OpenRouter の接続確認観点を整理する
+- [ ] 手動確認項目として「設定反映」「応答表示」「エラー表示」「再試行」「ファイル編集」を一通り通す
+
+## 参考資料
+- `.cursor/rules/project.mdc`
+- `.cursor/rules/branch.mdc`
+- `src/ui/src/pages/provider-settings-page.tsx`
+- `src/ui/src/pages/model-settings-page.tsx`
+- `src/ui/src/pages/general-settings-page.tsx`
+- OpenAI Agents JS Configuration Guide
+- https://openai.github.io/openai-agents-js/guides/config/
+- VSCode Extension API の Webview / Extension Host 間メッセージ連携
+- VSCode Secret Storage
+- OpenAI Node SDK
+
+## 調査結果・設計まとめ
+- 現状の setting UI では Provider ごとに `name` `baseUrl` `apiKey` を、Model ごとに `providerId` `name` `modelId` を編集できるため、このブランチでは「保存済み設定を workspace 実行へ接続すること」が中心課題になる
+- OpenAI Agents JS の設定ガイドでは、`OpenAI({ baseURL, apiKey })` から作成した client を `setDefaultOpenAIClient()` で注入できる。したがって OpenAI 互換 Provider は provider ごとに `baseUrl` と `apiKey` を差し替える factory で扱う方針がよい
+- 同ガイドでは `setOpenAIAPI()` により `responses` と `chat_completions` を切り替えられる。ブランチ内では agent が必要とする機能と互換 Provider 側の安定性を見て選択し、選定理由を残す
+- `apiKey` は project rule に従い平文ファイルへ保存しない。設定 UI で編集できても、永続化は Secret Storage を優先し、workspace 実行時に secret を復元して client 初期化へ渡す
+- workspace 側は Webview 上の見た目に留めず、extension host 側に agent 実行サービスを置き、Webview とは message contract で接続する。SDK 初期化やファイル編集権限は host 側に寄せる
+- Provider / Model の選択状態は workspace 実行前に解決し、設定不足時には「どの項目が足りないか」を UI で具体的に返す。`SYW-UX-001` の実行中表示、失敗理由、再試行導線を満たすこと
+- workspace の初回実装では OpenAI Node SDK の `chat.completions` を使い、OpenAI 互換 Provider との接続安定性を優先した。`responses` / Agents JS の切り替えは次段階の拡張ポイントとして残す
+- workspace UI は Model 選択を唯一の設定入口にし、選択中 Model の `providerId` から provider を逆引きして実行設定を解決する
+- workspace agent は実行前に workspace root / active file / selection の最小コンテキストを収集し、prompt に安全な形で付加する
+- file edit 系は workspace root の外側を書き換えない path validation を必須とし、実書き込みは専用 helper に閉じ込める
+- `/application/src` は `core` `host` `ui` の3層に整理し、host 実装は `src/host` に置く
+- ファイル編集機能は agent に無制限権限を与えず、workspace 配下のみを対象にし、編集実行前後でユーザーが状況を追える UI を用意する方針を優先する
+- Provider 固有ヘッダーが必要な場合に備え、workspace 実行層は `baseUrl` `apiKey` に加えて追加 headers を扱える構造で持つ
+- UI は project rule に従い、背景色を使わず、テーマ色準拠、横幅最大活用、横スクロール非表示を守る
+- file edit の安全通知は core の共通 notice を用い、host の system prompt と workspace UI の両方で同一内容を示すことで、編集前の確認漏れを防ぐ
+- workspace UI には file edit フォームを追加し、relative path と content を host に送信して `src/host/workspace-file-tools.ts` の安全書き込み処理へ接続した
+- host 側は workspace root を `collectWorkspaceContext()` から解決し、`writeWorkspaceFileSafely` で root 外書き込みを拒否する
+- file edit の結果は `workspace-file-edit-state` として webview に戻し、成功時は保存先、失敗時はエラーメッセージを表示する
+- AI の返答は `assistantMessage` と `fileEdits` を持つ JSON を fenced code block で返せるようにし、JSON が来たときだけ host が実際のファイル書き込みを実行する

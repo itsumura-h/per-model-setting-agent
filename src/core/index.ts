@@ -65,6 +65,43 @@ export type RunPreviewResult = {
 	timestamp: string;
 };
 
+export type WorkspaceExecutionStatus = 'idle' | 'running' | 'success' | 'error';
+
+export type WorkspaceExecutionState = {
+	status: WorkspaceExecutionStatus;
+	title: string;
+	providerName: string;
+	modelName: string;
+	baseUrl: string;
+	prompt: string;
+	response: string;
+	errorMessage?: string;
+	configurationIssues: string[];
+	fileEditSafetyNotice: WorkspaceFileEditSafetyNotice;
+	timestamp: string;
+	canRetry: boolean;
+};
+
+export type WorkspaceFileEditSafetyNotice = {
+	title: string;
+	items: string[];
+};
+
+export type WorkspaceFileEditStatus = 'idle' | 'saving' | 'success' | 'error';
+
+export type WorkspaceFileEditState = {
+	status: WorkspaceFileEditStatus;
+	title: string;
+	workspaceRoot: string;
+	relativePath: string;
+	content: string;
+	resultPath?: string;
+	errorMessage?: string;
+	safetyNotice: WorkspaceFileEditSafetyNotice;
+	timestamp: string;
+	canRetry: boolean;
+};
+
 export const providerPresets: ProviderPreset[] = [
 	{
 		id: 'cometapi',
@@ -122,6 +159,86 @@ export const modelPresets: ModelConfig[] = [
 	},
 ];
 
+export function createWorkspaceFileEditSafetyNotice(): WorkspaceFileEditSafetyNotice {
+	return {
+		title: 'ファイル編集前の安全確認',
+		items: [
+			'対象ファイルを先に明示し、workspace root の外側は編集しない',
+			'差分方針は最小差分を基本にし、必要な変更だけを提案する',
+			'失敗時の戻し方は、元ファイルの復元または差分の取り消しで案内する',
+			'実際の編集前に、内容を確認できる説明を必ず挟む',
+		],
+	};
+}
+
+export function createIdleWorkspaceFileEditState(workspaceRoot = ''): WorkspaceFileEditState {
+	return {
+		status: 'idle',
+		title: '待機中',
+		workspaceRoot,
+		relativePath: '',
+		content: '',
+		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		timestamp: new Date().toISOString(),
+		canRetry: false,
+	};
+}
+
+export function createSavingWorkspaceFileEditState(input: {
+	workspaceRoot: string;
+	relativePath: string;
+	content: string;
+}) {
+	return {
+		status: 'saving' as const,
+		title: '保存中',
+		workspaceRoot: input.workspaceRoot,
+		relativePath: input.relativePath,
+		content: input.content,
+		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		timestamp: new Date().toISOString(),
+		canRetry: false,
+	};
+}
+
+export function createSuccessWorkspaceFileEditState(input: {
+	workspaceRoot: string;
+	relativePath: string;
+	content: string;
+	resultPath: string;
+}) {
+	return {
+		status: 'success' as const,
+		title: '保存完了',
+		workspaceRoot: input.workspaceRoot,
+		relativePath: input.relativePath,
+		content: input.content,
+		resultPath: input.resultPath,
+		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		timestamp: new Date().toISOString(),
+		canRetry: true,
+	};
+}
+
+export function createErrorWorkspaceFileEditState(input: {
+	workspaceRoot: string;
+	relativePath: string;
+	content: string;
+	errorMessage: string;
+}) {
+	return {
+		status: 'error' as const,
+		title: '保存失敗',
+		workspaceRoot: input.workspaceRoot,
+		relativePath: input.relativePath,
+		content: input.content,
+		errorMessage: input.errorMessage,
+		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		timestamp: new Date().toISOString(),
+		canRetry: true,
+	};
+}
+
 function createId(prefix: string) {
 	const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 	return `${prefix}-${suffix}`;
@@ -135,12 +252,14 @@ function getPresetById(id: Exclude<ProviderPresetId, 'custom'>) {
 	return providerPresets.find((entry) => entry.id === id);
 }
 
-function normalizeHeaders(input: unknown, fallback: Record<string, string>) {
+function normalizeHeaders(input: unknown, fallback: Record<string, string>): Record<string, string> {
 	if (!input || typeof input !== 'object' || Array.isArray(input)) {
 		return { ...fallback };
 	}
 
-	const entries = Object.entries(input as Record<string, unknown>).filter(([, value]) => typeof value === 'string');
+	const entries = Object.entries(input as Record<string, unknown>).filter(
+		(entry): entry is [string, string] => typeof entry[1] === 'string',
+	);
 	if (entries.length === 0) {
 		return { ...fallback };
 	}
@@ -308,6 +427,19 @@ export function getSelectedModel(setting: SettingConfig) {
 	return setting.models.find((model) => model.id === setting.selectedModelId && model.providerId === setting.selectedProviderId);
 }
 
+export function getWorkspaceSelectedModel(setting: SettingConfig) {
+	return setting.models.find((model) => model.id === setting.selectedModelId);
+}
+
+export function getWorkspaceSelectedProvider(setting: SettingConfig) {
+	const model = getWorkspaceSelectedModel(setting);
+	if (model) {
+		return setting.providers.find((provider) => provider.id === model.providerId);
+	}
+
+	return getSelectedProvider(setting);
+}
+
 export function getConfigurationIssues(setting: SettingConfig) {
 	const issues: string[] = [];
 	const selectedProvider = getSelectedProvider(setting);
@@ -344,6 +476,140 @@ export function getConfigurationIssues(setting: SettingConfig) {
 	}
 
 	return issues;
+}
+
+export function getWorkspaceExecutionContext(setting: SettingConfig) {
+	const model = getWorkspaceSelectedModel(setting);
+	const provider = getWorkspaceSelectedProvider(setting);
+	const configurationIssues: string[] = [];
+
+	if (!model) {
+		configurationIssues.push('選択中のModelが見つかりません。Model を追加して選び直してください。');
+		return {
+			provider,
+			model,
+			configurationIssues,
+			isReady: false,
+		};
+	}
+
+	if (!provider) {
+		configurationIssues.push('選択中のModelに紐づくProviderが見つかりません。Provider を追加して選び直してください。');
+		return {
+			provider,
+			model,
+			configurationIssues,
+			isReady: false,
+		};
+	}
+
+	if (!provider.enabled) {
+		configurationIssues.push('選択中のProviderが無効です。必要であれば有効化してください。');
+	}
+
+	if (provider.baseUrl.trim().length === 0) {
+		configurationIssues.push('Provider の baseUrl が未設定です。');
+	}
+
+	if (provider.apiKey?.trim().length === 0) {
+		configurationIssues.push('Provider の API キーが未設定です。');
+	}
+
+	if (!model.enabled) {
+		configurationIssues.push('選択中のModelが無効です。必要であれば有効化してください。');
+	}
+
+	if (model.modelId.trim().length === 0) {
+		configurationIssues.push('Model ID が未設定です。');
+	}
+
+	return {
+		provider,
+		model,
+		configurationIssues,
+		isReady: configurationIssues.length === 0 && Boolean(provider) && Boolean(model),
+	};
+}
+
+export function createWorkspaceExecutionState(input: {
+	setting: SettingConfig;
+	prompt: string;
+	status: WorkspaceExecutionStatus;
+	title?: string;
+	response?: string;
+	errorMessage?: string;
+	canRetry?: boolean;
+}): WorkspaceExecutionState {
+	const { provider, model, configurationIssues } = getWorkspaceExecutionContext(input.setting);
+	const prompt = input.prompt.trim();
+	const status = input.status;
+	const title =
+		input.title ??
+		(status === 'running' ? '実行中' : status === 'success' ? '実行完了' : status === 'error' ? '実行エラー' : '待機中');
+
+	return {
+		status,
+		title,
+		providerName: provider?.name ?? '未選択',
+		modelName: model?.name ?? '未選択',
+		baseUrl: provider?.baseUrl ?? '未設定',
+		prompt: prompt.length > 0 ? prompt : '未入力',
+		response:
+			input.response ??
+			(status === 'running'
+				? '応答を待っています。'
+				: status === 'success'
+					? '応答を受信しました。'
+					: status === 'error'
+						? '実行に失敗しました。'
+						: 'まだ実行していません。'),
+		errorMessage: input.errorMessage,
+		configurationIssues,
+		fileEditSafetyNotice: createWorkspaceFileEditSafetyNotice(),
+		timestamp: new Date().toISOString(),
+		canRetry: input.canRetry ?? status !== 'idle',
+	};
+}
+
+export function createIdleWorkspaceExecutionState(setting: SettingConfig) {
+	return createWorkspaceExecutionState({
+		setting,
+		prompt: '',
+		status: 'idle',
+		canRetry: false,
+		response: getConfigurationIssues(setting).length === 0 ? 'プロンプトを入力して送信してください。' : '設定を確認してください。',
+	});
+}
+
+export function createRunningWorkspaceExecutionState(setting: SettingConfig, prompt: string) {
+	return createWorkspaceExecutionState({
+		setting,
+		prompt,
+		status: 'running',
+		canRetry: false,
+		response: 'OpenAI 互換 Provider へ送信中です。',
+	});
+}
+
+export function createSuccessWorkspaceExecutionState(setting: SettingConfig, prompt: string, response: string) {
+	return createWorkspaceExecutionState({
+		setting,
+		prompt,
+		status: 'success',
+		canRetry: true,
+		response,
+	});
+}
+
+export function createErrorWorkspaceExecutionState(setting: SettingConfig, prompt: string, errorMessage: string) {
+	return createWorkspaceExecutionState({
+		setting,
+		prompt,
+		status: 'error',
+		canRetry: true,
+		response: '実行に失敗しました。',
+		errorMessage,
+	});
 }
 
 export function createRunPreview(input: RunPreviewInput): RunPreviewResult {

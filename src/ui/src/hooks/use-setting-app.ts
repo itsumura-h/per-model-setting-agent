@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 
 import {
-	createRunPreview,
+	createErrorWorkspaceExecutionState,
+	createIdleWorkspaceExecutionState,
+	createErrorWorkspaceFileEditState,
+	createIdleWorkspaceFileEditState,
+	createRunningWorkspaceExecutionState,
+	createSuccessWorkspaceExecutionState,
 	getConfigurationIssues,
-	getProviderModels,
 	getSelectedModel,
 	getSelectedProvider,
 	modelPresets,
@@ -12,6 +16,8 @@ import {
 	type ProviderConfig,
 	type ProviderPresetId,
 	type SettingConfig,
+	type WorkspaceFileEditState,
+	type WorkspaceExecutionState,
 } from '../../../core/index';
 import {
 	createProviderDraft,
@@ -25,7 +31,6 @@ import type {
 	EditorState,
 	ExtensionMessage,
 	ExtensionState,
-	RunPreview,
 	SettingsNavigationEntry,
 	SettingsSection,
 	VsCodeApi,
@@ -39,13 +44,17 @@ type UseSettingAppParams = {
 export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 	const [bootstrapState, setBootstrapState] = useState<ExtensionState>(initialState);
 	const [setting, setSetting] = useState<SettingConfig>(initialState.setting);
+	const [workspaceExecution, setWorkspaceExecution] = useState<WorkspaceExecutionState>(
+		initialState.workspaceExecution ?? createIdleWorkspaceExecutionState(initialState.setting),
+	);
+	const [workspaceFileEdit, setWorkspaceFileEdit] = useState<WorkspaceFileEditState>(
+		initialState.workspaceFileEdit ?? createIdleWorkspaceFileEditState(),
+	);
 	const [surface] = useState<'workspace' | 'settings'>(initialState.surface ?? 'workspace');
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
 	const [prompt, setPrompt] = useState('設定メニューの読み込みと CRUD を確認します。');
-	const [hasRunPreview, setHasRunPreview] = useState(false);
-	const [runResult, setRunResult] = useState<RunPreview>(() =>
-		createRunPreview({ setting: initialState.setting, prompt: '設定メニューの読み込みと CRUD を確認します。' }),
-	);
+	const [fileEditRelativePath, setFileEditRelativePath] = useState(initialState.workspaceFileEdit?.relativePath ?? '');
+	const [fileEditContent, setFileEditContent] = useState(initialState.workspaceFileEdit?.content ?? '');
 	const [editor, setEditor] = useState<EditorState | null>(null);
 	const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
 		initialState.loadMode === 'corrupt' ? 'error' : initialState.loadMode === 'default' ? 'idle' : 'saved',
@@ -59,6 +68,8 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			if (message.type === 'state-saved') {
 				setBootstrapState(message.state);
 				setSetting(message.state.setting);
+				setWorkspaceExecution(message.state.workspaceExecution ?? createIdleWorkspaceExecutionState(message.state.setting));
+				setWorkspaceFileEdit(message.state.workspaceFileEdit ?? createIdleWorkspaceFileEditState());
 				setSyncStatus('saved');
 				setSyncMessage(message.state.message);
 				return;
@@ -67,6 +78,42 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			if (message.type === 'state-error') {
 				setSyncStatus('error');
 				setSyncMessage(message.message);
+				return;
+			}
+
+			if (message.type === 'workspace-execution-state') {
+				setWorkspaceExecution(message.state);
+				setBootstrapState((current) => ({
+					...current,
+					workspaceExecution: message.state,
+					message:
+						message.state.status === 'running'
+							? 'Agent を実行しています。'
+							: message.state.status === 'success'
+								? 'Agent の応答を受信しました。'
+								: message.state.status === 'error'
+									? 'Agent の実行に失敗しました。'
+									: current.message,
+					errorMessage: message.state.status === 'error' ? message.state.errorMessage : undefined,
+				}));
+				return;
+			}
+
+			if (message.type === 'workspace-file-edit-state') {
+				setWorkspaceFileEdit(message.state);
+				setBootstrapState((current) => ({
+					...current,
+					workspaceFileEdit: message.state,
+					message:
+						message.state.status === 'saving'
+							? 'ファイルを保存しています。'
+							: message.state.status === 'success'
+								? 'ファイルを保存しました。'
+								: message.state.status === 'error'
+									? 'ファイルの保存に失敗しました。'
+									: current.message,
+					errorMessage: message.state.status === 'error' ? message.state.errorMessage : undefined,
+				}));
 			}
 		};
 
@@ -76,17 +123,8 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		return () => window.removeEventListener('message', handler);
 	}, [vscode]);
 
-	useEffect(() => {
-		if (!hasRunPreview) {
-			return;
-		}
-
-		setRunResult(createRunPreview({ setting, prompt }));
-	}, [setting, prompt, hasRunPreview]);
-
 	const selectedProvider = getSelectedProvider(setting);
 	const selectedModel = getSelectedModel(setting);
-	const providerModels = useMemo(() => getProviderModels(setting, setting.selectedProviderId), [setting]);
 	const configurationIssues = getConfigurationIssues(setting);
 
 	function persistSetting(nextSetting: SettingConfig) {
@@ -95,9 +133,13 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
+			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
 			message: '設定を保存しています。',
 			errorMessage: undefined,
 		}));
+		setWorkspaceExecution((current) =>
+			current.status === 'running' ? current : createIdleWorkspaceExecutionState(normalized),
+		);
 		setSyncStatus('saving');
 		setSyncMessage('設定を保存しています。');
 
@@ -114,6 +156,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
+			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
 			message: 'ローカルプレビューを更新しました。',
 			errorMessage: undefined,
 		}));
@@ -123,25 +166,137 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		persistSetting(normalizeSettingConfig(nextSetting));
 	}
 
-	function selectProvider(providerId: string) {
-		const nextModelId = getProviderModels(setting, providerId)[0]?.id ?? '';
-		updateSelection({
-			...setting,
-			selectedProviderId: providerId,
-			selectedModelId: nextModelId,
-		});
-	}
-
 	function selectModel(modelId: string) {
+		const nextModel = setting.models.find((model) => model.id === modelId);
+
 		updateSelection({
 			...setting,
+			selectedProviderId: nextModel?.providerId ?? setting.selectedProviderId,
 			selectedModelId: modelId,
 		});
 	}
 
-	function runPreview() {
-		setHasRunPreview(true);
-		setRunResult(createRunPreview({ setting, prompt }));
+	function runAgent() {
+		const trimmedPrompt = prompt.trim();
+		if (trimmedPrompt.length === 0) {
+			setWorkspaceExecution(createIdleWorkspaceExecutionState(setting));
+			return;
+		}
+
+		const normalizedSetting = normalizeSettingConfig(setting);
+		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, trimmedPrompt);
+		setWorkspaceExecution(runningState);
+		setBootstrapState((current) => ({
+			...current,
+			setting: normalizedSetting,
+			workspaceExecution: runningState,
+			message: 'Agent を実行しています。',
+			errorMessage: undefined,
+		}));
+
+		if (vscode) {
+			vscode.postMessage({
+				type: 'run-workspace-agent',
+				setting: normalizedSetting,
+				prompt: trimmedPrompt,
+			});
+			return;
+		}
+
+		const configurationIssues = getConfigurationIssues(normalizedSetting);
+		if (configurationIssues.length > 0) {
+			const errorState = createErrorWorkspaceExecutionState(
+				normalizedSetting,
+				trimmedPrompt,
+				configurationIssues.join('\n'),
+			);
+			setWorkspaceExecution(errorState);
+			setBootstrapState((current) => ({
+				...current,
+				workspaceExecution: errorState,
+				message: '設定を確認してください。',
+				errorMessage: errorState.errorMessage,
+			}));
+			return;
+		}
+
+		const previewResponse = `${selectedProvider?.name ?? 'Provider'} / ${selectedModel?.name ?? 'Model'} に "${trimmedPrompt}" を送信するローカルプレビューです。`;
+		const successState = createSuccessWorkspaceExecutionState(normalizedSetting, trimmedPrompt, previewResponse);
+		setWorkspaceExecution(successState);
+		setBootstrapState((current) => ({
+			...current,
+			workspaceExecution: successState,
+			message: 'ローカルプレビューで応答を表示しました。',
+			errorMessage: undefined,
+		}));
+	}
+
+	function submitWorkspaceFileEdit() {
+		const relativePath = fileEditRelativePath.trim();
+		const content = fileEditContent;
+
+		if (relativePath.length === 0) {
+			const errorState = createErrorWorkspaceFileEditState({
+				workspaceRoot: '',
+				relativePath: '',
+				content,
+				errorMessage: '編集対象のファイルパスを入力してください。',
+			});
+			setWorkspaceFileEdit(errorState);
+			setBootstrapState((current) => ({
+				...current,
+				workspaceFileEdit: errorState,
+				message: '編集対象のファイルパスが未入力です。',
+				errorMessage: errorState.errorMessage,
+			}));
+			return;
+		}
+
+		if (!vscode) {
+			const errorState = createErrorWorkspaceFileEditState({
+				workspaceRoot: '',
+				relativePath,
+				content,
+				errorMessage: 'VSCode API が見つからないため、ファイル保存は実行できません。',
+			});
+			setWorkspaceFileEdit(errorState);
+			setBootstrapState((current) => ({
+				...current,
+				workspaceFileEdit: errorState,
+				message: 'ローカルプレビューではファイル保存できません。',
+				errorMessage: errorState.errorMessage,
+			}));
+			return;
+		}
+
+		vscode.postMessage({
+			type: 'request-workspace-file-edit',
+			relativePath,
+			content,
+		});
+		setWorkspaceFileEdit((current) => ({
+			...current,
+			status: 'saving',
+			title: '保存中',
+			relativePath,
+			content,
+			canRetry: false,
+			timestamp: new Date().toISOString(),
+		}));
+		setBootstrapState((current) => ({
+			...current,
+			workspaceFileEdit: {
+				...current.workspaceFileEdit,
+				status: 'saving',
+				title: '保存中',
+				relativePath,
+				content,
+				canRetry: false,
+				timestamp: new Date().toISOString(),
+			},
+			message: 'ファイルを保存しています。',
+			errorMessage: undefined,
+		}));
 	}
 
 	function openProviderEditor(provider?: ProviderConfig) {
@@ -256,16 +411,19 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			return;
 		}
 
-		if (!window.confirm(`Provider「${provider.name}」を削除しますか？関連する Model も削除されます。`)) {
-			return;
-		}
-
 		const nextProviders = setting.providers.filter((entry) => entry.id !== providerId);
 		const nextModels = setting.models.filter((entry) => entry.providerId !== providerId);
+		const nextSelection = resolveSelectionAfterMutation({
+			nextProviders,
+			nextModels,
+			previousProviderId: setting.selectedProviderId,
+			previousModelId: setting.selectedModelId,
+		});
 		persistSetting({
 			...setting,
 			providers: nextProviders,
 			models: nextModels,
+			...nextSelection,
 		});
 
 		if (editor?.kind === 'provider' && editor.draft.id === providerId) {
@@ -279,14 +437,17 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			return;
 		}
 
-		if (!window.confirm(`Model「${model.name}」を削除しますか？`)) {
-			return;
-		}
-
 		const nextModels = setting.models.filter((entry) => entry.id !== modelId);
+		const nextSelection = resolveSelectionAfterMutation({
+			nextProviders: setting.providers,
+			nextModels,
+			previousProviderId: setting.selectedProviderId,
+			previousModelId: setting.selectedModelId,
+		});
 		persistSetting({
 			...setting,
 			models: nextModels,
+			...nextSelection,
 		});
 
 		if (editor?.kind === 'model' && editor.draft.id === modelId) {
@@ -409,21 +570,26 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		surface,
 		settingsSection,
 		prompt,
-		runResult,
+		workspaceExecution,
+		workspaceFileEdit,
 		editor,
 		syncStatus,
 		syncMessage,
 		selectedProvider,
 		selectedModel,
-		providerModels,
 		configurationIssues,
 		settingSummary,
 		settingsNavigation,
 		activeSettingsPanel: settingsSection,
 		setPrompt,
-		selectProvider,
+		fileEditRelativePath,
+		fileEditContent,
+		setFileEditRelativePath,
+		setFileEditContent,
 		selectModel,
-		runPreview,
+		runAgent,
+		submitWorkspaceFileEdit,
+		retryAgent: runAgent,
 		openProviderEditor,
 		openModelEditor,
 		closeEditor,
@@ -439,5 +605,43 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		openSettings,
 		returnToWorkspace,
 		getProviderPreset,
+	};
+}
+
+function resolveSelectionAfterMutation({
+	nextProviders,
+	nextModels,
+	previousProviderId,
+	previousModelId,
+}: {
+	nextProviders: SettingConfig['providers'];
+	nextModels: SettingConfig['models'];
+	previousProviderId: string;
+	previousModelId: string;
+}) {
+	const selectedProviderHasModels = nextModels.some((model) => model.providerId === previousProviderId);
+	if (selectedProviderHasModels) {
+		const selectedProviderModels = nextModels.filter((model) => model.providerId === previousProviderId);
+		const selectedModelId = selectedProviderModels.some((model) => model.id === previousModelId)
+			? previousModelId
+			: selectedProviderModels[0]?.id ?? '';
+
+		return {
+			selectedProviderId: previousProviderId,
+			selectedModelId,
+		};
+	}
+
+	const firstModel = nextModels[0];
+	if (firstModel) {
+		return {
+			selectedProviderId: firstModel.providerId,
+			selectedModelId: firstModel.id,
+		};
+	}
+
+	return {
+		selectedProviderId: nextProviders[0]?.id ?? '',
+		selectedModelId: '',
 	};
 }
