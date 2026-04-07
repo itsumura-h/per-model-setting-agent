@@ -1,44 +1,76 @@
 import {
-	createDefaultSettingConfig,
+	createAgentToolFileEditSafetyNotice,
+	createDefaultSettingsConfig,
+	createIdleAgentToolFileEditState,
 	createIdleWorkspaceExecutionState,
-	createIdleWorkspaceFileEditState,
-	createWorkspaceFileEditSafetyNotice,
-	normalizeSettingConfig,
+	normalizeSettingsConfig,
 } from '../../../core/index';
-import type { ExtensionState, VsCodeApi } from '../types';
+import type { AppState, VsCodeApi } from '../types';
 
-const fallbackSetting = createDefaultSettingConfig();
+const fallbackSettings = createDefaultSettingsConfig();
 
-export const fallbackBootstrapState: ExtensionState = {
-	surface: 'workspace',
-	setting: fallbackSetting,
-	workspaceExecution: createIdleWorkspaceExecutionState(fallbackSetting),
-	workspaceFileEdit: createIdleWorkspaceFileEditState(),
+export const fallbackBootstrapState: AppState = {
+	viewMode: 'workspace',
+	settings: fallbackSettings,
+	workspaceExecution: createIdleWorkspaceExecutionState(fallbackSettings),
+	agentToolFileEdit: createIdleAgentToolFileEditState(),
 	filePath: '~/.permosa/setting.json',
-	loadMode: 'default',
-	message: 'ローカルプレビューを表示しています。',
+	loadStatus: 'fallback',
+	statusMessage: 'ローカルプレビューを表示しています。',
 };
 
-export function readBootstrapState(): ExtensionState {
+function migrateLoadStatus(raw: Record<string, unknown>): 'fallback' | 'loaded' | 'corrupt' {
+	if (raw.loadStatus === 'fallback' || raw.loadStatus === 'loaded' || raw.loadStatus === 'corrupt') {
+		return raw.loadStatus;
+	}
+	if (raw.loadMode === 'loaded' || raw.loadMode === 'corrupt') {
+		return raw.loadMode;
+	}
+	if (raw.loadMode === 'default') {
+		return 'fallback';
+	}
+	return 'fallback';
+}
+
+export function readBootstrapState(): AppState {
 	const element = document.getElementById('permosa-initial-state');
 	const raw = element?.textContent?.trim();
 
 	if (raw) {
 		try {
-			const parsed = JSON.parse(raw) as ExtensionState;
-			if (parsed?.setting) {
-				const setting = normalizeSettingConfig(parsed.setting);
-				const workspaceExecution = normalizeWorkspaceExecutionState(parsed.workspaceExecution, setting);
-				const workspaceFileEdit = parsed.workspaceFileEdit ?? createIdleWorkspaceFileEditState();
+			const parsed = JSON.parse(raw) as Record<string, unknown>;
+			const settingsRaw = parsed.settings ?? parsed.setting;
+			if (settingsRaw && typeof settingsRaw === 'object') {
+				const settings = normalizeSettingsConfig(settingsRaw as Parameters<typeof normalizeSettingsConfig>[0]);
+				const workspaceExecution = normalizeWorkspaceExecutionState(
+					parsed.workspaceExecution as AppState['workspaceExecution'] | undefined,
+					settings,
+				);
+				const legacyToolEdit = parsed.agentToolFileEdit ?? parsed.workspaceFileEdit;
+				const agentToolFileEdit =
+					(legacyToolEdit as AppState['agentToolFileEdit'] | undefined) ?? createIdleAgentToolFileEditState();
+				const viewMode =
+					parsed.viewMode === 'settings' || parsed.viewMode === 'workspace'
+						? parsed.viewMode
+						: parsed.surface === 'settings' || parsed.surface === 'workspace'
+							? parsed.surface
+							: 'workspace';
 				return {
-					...parsed,
-					surface: parsed.surface ?? 'workspace',
-					setting,
+					...(parsed as unknown as AppState),
+					viewMode,
+					settings,
 					workspaceExecution,
-					workspaceFileEdit: {
-						...workspaceFileEdit,
-						safetyNotice: workspaceFileEdit.safetyNotice ?? createWorkspaceFileEditSafetyNotice(),
+					agentToolFileEdit: {
+						...agentToolFileEdit,
+						safetyNotice: agentToolFileEdit.safetyNotice ?? createAgentToolFileEditSafetyNotice(),
 					},
+					loadStatus: migrateLoadStatus(parsed),
+					statusMessage:
+						typeof parsed.statusMessage === 'string'
+							? parsed.statusMessage
+							: typeof parsed.message === 'string'
+								? parsed.message
+								: fallbackBootstrapState.statusMessage,
 				};
 			}
 		} catch {
@@ -49,19 +81,27 @@ export function readBootstrapState(): ExtensionState {
 	return fallbackBootstrapState;
 }
 
+type LegacyWorkspaceExecution = AppState['workspaceExecution'] & {
+	fileEditSafetyNotice?: AppState['workspaceExecution']['agentToolFileEditSafetyNotice'];
+};
+
 function normalizeWorkspaceExecutionState(
-	workspaceExecution: ExtensionState['workspaceExecution'] | undefined,
-	setting: ExtensionState['setting'],
+	workspaceExecution: AppState['workspaceExecution'] | undefined,
+	settings: AppState['settings'],
 ) {
-	const nextWorkspaceExecution = workspaceExecution ?? createIdleWorkspaceExecutionState(setting);
+	const nextWorkspaceExecution = workspaceExecution ?? createIdleWorkspaceExecutionState(settings);
+	const legacy = nextWorkspaceExecution as LegacyWorkspaceExecution;
 
 	return {
 		...nextWorkspaceExecution,
-		fileEditSafetyNotice: nextWorkspaceExecution.fileEditSafetyNotice ?? createWorkspaceFileEditSafetyNotice(),
+		agentToolFileEditSafetyNotice:
+			nextWorkspaceExecution.agentToolFileEditSafetyNotice ??
+			legacy.fileEditSafetyNotice ??
+			createAgentToolFileEditSafetyNotice(),
 		messages:
 			Array.isArray(nextWorkspaceExecution.messages) && nextWorkspaceExecution.messages.length > 0
 				? nextWorkspaceExecution.messages
-				: createIdleWorkspaceExecutionState(setting).messages,
+				: createIdleWorkspaceExecutionState(settings).messages,
 	};
 }
 

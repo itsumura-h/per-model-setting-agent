@@ -1,0 +1,106 @@
+---
+description: 7-refactorブランチでの開発時に読み込む
+alwaysApply: false
+---
+7-refactor
+===
+
+このブランチで実装することは以下の通りです。
+- エージェントに使わせるツール関連の命名を `AgentTools` に統一するリファクタリング
+
+## 進捗
+- [x] 修正方針のレビュー・確定
+- [x] ファイル名・フォルダ名のリネーム
+- [x] 型名・関数名・変数名のリネーム
+- [x] import パスの更新
+- [x] メッセージ型・メッセージ type 文字列の更新
+- [x] UI 側の対応箇所の更新
+- [x] ビルド確認
+
+## 参考資料
+- ファイル編集ツール実装: `src/host/agent-tools/file-edit.ts`（barrel: `src/host/agent-tools/index.ts`）
+- オーケストレーター: `src/host/agent-orchestrator.ts`
+- core 型定義: `src/core/types.ts`, `src/core/agent-tool-file-edit-state.ts`
+- core メッセージ定義: `src/core/messages.ts`
+- UI フック: `src/ui/src/hooks/use-agent-tool-file-edit.ts`
+
+## 調査結果・設計まとめ
+
+### 背景・方針
+現在「エージェントが使うツール」に相当する機能は **ファイル編集（file-edit）** のみだが、
+将来的にターミナル実行・ワークスペース検索・ファイル読み取りなどの **ツール群** が増える。
+これらを統一的に `AgentTools` という名前空間で整理し、拡張性を確保する。
+
+### リネーム対象一覧
+
+#### 1. ファイル名・フォルダ名
+
+| 現在のパス | 変更後のパス | 理由 |
+|---|---|---|
+| `src/host/workspace-file-tools.ts` | `src/host/agent-tools/file-edit.ts` | ツール群を格納するフォルダ `agent-tools/` を新設し、ファイル編集ツールをその中に配置 |
+| （新規） | `src/host/agent-tools/index.ts` | AgentTools の barrel export |
+
+#### 2. 型名
+
+| ファイル | 現在の名前 | 変更後の名前 | 行 |
+|---|---|---|---|
+| `src/host/workspace-file-tools.ts` → `src/host/agent-tools/file-edit.ts` | `WorkspaceFileEditRequest` | `AgentToolFileEditRequest` | 4 |
+| 同上 | `WorkspaceFileEditResult` | `AgentToolFileEditResult` | 10 |
+| `src/core/types.ts` | `WorkspaceFileEditSafetyNotice` | `AgentToolFileEditSafetyNotice` | 101 |
+| `src/core/types.ts` | `WorkspaceFileEditStatus` | `AgentToolFileEditStatus` | 106 |
+| `src/core/types.ts` | `WorkspaceFileEditState` | `AgentToolFileEditState` | 108 |
+| `src/core/types.ts` | `AppState.workspaceFileEdit` | `AppState.agentToolFileEdit` | 128 |
+| `src/core/types.ts` | `WorkspaceExecutionState.fileEditSafetyNotice` | `WorkspaceExecutionState.agentToolFileEditSafetyNotice` | 96 |
+
+#### 3. 関数名
+
+| ファイル | 現在の名前 | 変更後の名前 |
+|---|---|---|
+| `src/host/workspace-file-tools.ts` → `src/host/agent-tools/file-edit.ts` | `writeWorkspaceFileSafely` | `agentToolFileEditWrite` |
+| `src/core/file-edit-state.ts` | `createWorkspaceFileEditSafetyNotice` | `createAgentToolFileEditSafetyNotice` |
+| `src/core/file-edit-state.ts` | `createIdleWorkspaceFileEditState` | `createIdleAgentToolFileEditState` |
+| `src/core/file-edit-state.ts` | `createSavingWorkspaceFileEditState` | `createSavingAgentToolFileEditState` |
+| `src/core/file-edit-state.ts` | `createSuccessWorkspaceFileEditState` | `createSuccessAgentToolFileEditState` |
+| `src/core/file-edit-state.ts` | `createErrorWorkspaceFileEditState` | `createErrorAgentToolFileEditState` |
+| `src/host/agent-orchestrator.ts` | `applyAgentFileEdits` | `applyAgentToolFileEdits` |
+| `src/host/agent-orchestrator.ts` | `runWorkspaceFileEdit` | `runAgentToolFileEdit` |
+
+#### 4. core ファイル名
+
+| 現在のパス | 変更後のパス | 理由 |
+|---|---|---|
+| `src/core/file-edit-state.ts` | `src/core/agent-tool-file-edit-state.ts` | 型名・関数名の命名と合わせる |
+
+#### 5. メッセージ型・type 文字列
+
+| ファイル | 現在の type 文字列 | 変更後の type 文字列 |
+|---|---|---|
+| `src/core/messages.ts` (WebviewMessage) | `'request-workspace-file-edit'` | `'request-agent-tool-file-edit'` |
+| `src/core/messages.ts` (ExtensionMessage) | `'workspace-file-edit-state'` | `'agent-tool-file-edit-state'` |
+
+#### 6. UI 側の対応箇所
+
+| ファイル | 変更内容 |
+|---|---|
+| `src/ui/src/hooks/use-workspace-file-edit.ts` | ファイル名を `use-agent-tool-file-edit.ts` にリネーム。フック名 `useWorkspaceFileEdit` → `useAgentToolFileEdit`、型名 `UseWorkspaceFileEditParams` → `UseAgentToolFileEditParams`、関数名 `submitWorkspaceFileEdit` → `submitAgentToolFileEdit` |
+| `src/ui/src/hooks/use-extension-messaging.ts` | メッセージ type 文字列 `'workspace-file-edit-state'` → `'agent-tool-file-edit-state'`、state キー `workspaceFileEdit` → `agentToolFileEdit` の参照更新 |
+| `src/ui/src/index.tsx` | import パスと変数名の更新 |
+| `src/ui/src/components/workspace-view.tsx` | state キー `workspaceFileEdit` → `agentToolFileEdit` の参照更新 |
+
+#### 7. import パスの更新
+
+| ファイル | 変更内容 |
+|---|---|
+| `src/host/agent-orchestrator.ts` | `'./workspace-file-tools'` → `'./agent-tools/file-edit'` |
+| `src/core/index.ts` | `'./file-edit-state'` → `'./agent-tool-file-edit-state'` |
+| UI 各ファイル | 上記リネームに追従 |
+
+### 命名規則ルール（今後のツール追加時）
+- ファイルは `src/host/agent-tools/<tool-name>.ts` に配置
+- 型名は `AgentTool<ToolName><Suffix>` （例: `AgentToolTerminalExecRequest`）
+- 関数名は `agentTool<ToolName><Action>` （例: `agentToolTerminalExec`）
+- core 側の状態型は `AgentTool<ToolName>State`
+- メッセージ type 文字列は `'agent-tool-<tool-name>-<action>'`
+
+### 実装メモ（bootstrap 互換）
+- 埋め込み JSON に旧キー `workspaceFileEdit` や実行状態の `fileEditSafetyNotice` が残っていても、`readBootstrapState` / `normalizeWorkspaceExecutionState` で新キーへ読み替える。

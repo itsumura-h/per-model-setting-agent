@@ -15,7 +15,7 @@ export function GeneralSettingsPage({
 				<article class="grid min-w-0 gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
 					<p class="m-0 text-xs font-bold uppercase tracking-[0.12em]">保存先</p>
 					<h3>{bootstrapState.filePath}</h3>
-					<p class="m-0">{bootstrapState.message}</p>
+					<p class="m-0">{bootstrapState.statusMessage}</p>
 				</article>
 			</div>
 		</div>

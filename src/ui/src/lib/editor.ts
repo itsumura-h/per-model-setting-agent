@@ -1,16 +1,12 @@
 import {
+	createId,
 	modelPresets,
 	providerPresets,
 	type ModelConfig,
 	type ProviderConfig,
 	type ProviderPresetId,
 } from '../../../core/index';
-import type { EditorState } from '../types';
-
-function createId(prefix: string) {
-	const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-	return `${prefix}-${suffix}`;
-}
+import type { FormEditorState } from '../types';
 
 export function formatHeadersText(headers: Record<string, string>) {
 	return JSON.stringify(headers, null, 2);
@@ -98,7 +94,7 @@ export function getProviderPreset(provider: ProviderConfig) {
 	return undefined;
 }
 
-export function makeProviderEditorDraft(provider?: ProviderConfig): EditorState {
+export function makeProviderEditorDraft(provider?: ProviderConfig): FormEditorState {
 	const draft = provider ? createProviderDraftFromCurrent(provider) : createProviderDraft();
 
 	return {
@@ -109,7 +105,7 @@ export function makeProviderEditorDraft(provider?: ProviderConfig): EditorState 
 	};
 }
 
-export function makeModelEditorDraft(model: ModelConfig | undefined, providerId: string, providers: ProviderConfig[]): EditorState {
+export function makeModelEditorDraft(model: ModelConfig | undefined, providerId: string, providers: ProviderConfig[]): FormEditorState {
 	const draft = model ? createModelDraftFromCurrent(model) : createModelDraft(providerId, providers);
 
 	return {

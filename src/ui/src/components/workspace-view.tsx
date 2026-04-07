@@ -1,23 +1,19 @@
-import type { WorkspaceExecutionState } from '../../../core/index';
+import type { AgentToolFileEditState, WorkspaceExecutionState } from '../../../core/index';
 import { fieldClass } from '../consts';
-import type { ExtensionState } from '../types';
 
 type WorkspaceViewProps = {
-	bootstrapState: ExtensionState;
-	setting: {
+	settings: {
 		selectedProviderId: string;
 		selectedModelId: string;
 		providers: { id: string; name: string }[];
 		models: { id: string; providerId: string; name: string; enabled: boolean }[];
 	};
 	workspaceExecution: WorkspaceExecutionState;
-	workspaceFileEdit: ExtensionState['workspaceFileEdit'];
+	agentToolFileEdit: AgentToolFileEditState;
 	configurationIssues: string[];
 	prompt: string;
 	fileEditRelativePath: string;
 	fileEditContent: string;
-	syncStatus: 'idle' | 'saving' | 'saved' | 'error';
-	syncMessage: string;
 	onPromptInput: (value: string) => void;
 	onSelectModel: (modelId: string) => void;
 	onRunAgent: () => void;
@@ -52,16 +48,13 @@ function GearIcon() {
 }
 
 export function WorkspaceView({
-	bootstrapState,
-	setting,
+	settings,
 	workspaceExecution,
-	workspaceFileEdit,
+	agentToolFileEdit,
 	configurationIssues,
 	prompt,
 	fileEditRelativePath,
 	fileEditContent,
-	syncStatus,
-	syncMessage,
 	onPromptInput,
 	onSelectModel,
 	onRunAgent,
@@ -73,10 +66,8 @@ export function WorkspaceView({
 	const trimmedPrompt = prompt.trim();
 	const canSubmit = trimmedPrompt.length > 0 && workspaceExecution.status !== 'running';
 	const trimmedFileEditRelativePath = fileEditRelativePath.trim();
-	const canSaveFile = trimmedFileEditRelativePath.length > 0 && workspaceFileEdit.status !== 'saving';
-	const availableModels = setting.models.filter((model) => model.enabled);
-	const selectedProviderName = setting.providers.find((provider) => provider.id === setting.selectedProviderId)?.name ?? '未選択';
-	const selectedModelName = setting.models.find((model) => model.id === setting.selectedModelId)?.name ?? '未選択';
+	const canSaveFile = trimmedFileEditRelativePath.length > 0 && agentToolFileEdit.status !== 'saving';
+	const availableModels = settings.models.filter((model) => model.enabled);
 
 	return (
 		<section class="grid min-w-0 gap-4">
@@ -116,7 +107,7 @@ export function WorkspaceView({
 							<span class="sr-only">Model</span>
 							<select
 								class="min-w-[9rem] rounded-md border border-base-300 bg-base-200 px-2.5 py-1.5 text-xs text-base-content outline-none"
-								value={setting.selectedModelId}
+								value={settings.selectedModelId}
 								onChange={(event) => onSelectModel((event.currentTarget as HTMLSelectElement).value)}
 								aria-label="Model を選択"
 							>
@@ -126,7 +117,6 @@ export function WorkspaceView({
 									</option>
 								) : null}
 								{availableModels.map((model) => {
-									const providerName = setting.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未選択';
 									return (
 										<option class="bg-base-200 text-base-content" key={model.id} value={model.id}>
 											{model.name}

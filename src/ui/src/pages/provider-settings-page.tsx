@@ -4,7 +4,7 @@ import { fieldClass } from '../consts';
 
 export function ProviderSettingsPage({
 	editor,
-	setting,
+	settings,
 	onOpenProviderEditor,
 	onCloseEditor,
 	onDeleteProvider,
@@ -30,13 +30,13 @@ export function ProviderSettingsPage({
 				</div>
 
 				<div class="grid min-w-0 gap-3">
-					{setting.providers.length === 0 ? (
+					{settings.providers.length === 0 ? (
 						<div class="grid gap-2.5 p-3.5 rounded-2xl border border-[color:var(--vscode-panel-border)]">
 							<p>Provider がありません。</p>
 							<p class="m-0">Provider を追加すると Model を作成できるようになります。</p>
 						</div>
 					) : (
-						setting.providers.map((provider) => {
+						settings.providers.map((provider) => {
 							const preset = getProviderPreset(provider);
 							const isEditingCurrentProvider = editingProviderId === provider.id;
 

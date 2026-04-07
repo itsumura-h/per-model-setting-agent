@@ -3,12 +3,12 @@ import { SettingsSidebar } from './settings-sidebar';
 import { GeneralSettingsPage } from '../pages/general-settings-page';
 import { ModelSettingsPage } from '../pages/model-settings-page';
 import { ProviderSettingsPage } from '../pages/provider-settings-page';
-import type { EditorState, ExtensionState, SettingsNavigationEntry, SettingsSection } from '../types';
+import type { AppState, FormEditorState, SettingsNavigationEntry, SettingsSection } from '../types';
 
 type SettingsViewProps = {
-	bootstrapState: ExtensionState;
-	editor: EditorState | null;
-	setting: {
+	bootstrapState: AppState;
+	editor: FormEditorState | null;
+	settings: {
 		selectedProviderId: string;
 		selectedModelId: string;
 		providers: ProviderConfig[];
@@ -16,11 +16,6 @@ type SettingsViewProps = {
 	};
 	settingsNavigation: SettingsNavigationEntry[];
 	activeSettingsPanel: SettingsSection;
-	selectedProvider?: ProviderConfig;
-	selectedModel?: ModelConfig;
-	syncStatus: 'idle' | 'saving' | 'saved' | 'error';
-	syncMessage: string;
-	onReturnToWorkspace: () => void;
 	onOpenSettings: (section: SettingsSection) => void;
 	onOpenProviderEditor: (provider?: ProviderConfig) => void;
 	onOpenModelEditor: (model?: ModelConfig) => void;
@@ -40,14 +35,9 @@ type SettingsViewProps = {
 export function SettingsView({
 	bootstrapState,
 	editor,
-	setting,
+	settings,
 	settingsNavigation,
 	activeSettingsPanel,
-	selectedProvider,
-	selectedModel,
-	syncStatus,
-	syncMessage,
-	onReturnToWorkspace,
 	onOpenSettings,
 	onOpenProviderEditor,
 	onOpenModelEditor,
@@ -62,7 +52,7 @@ export function SettingsView({
 	onUpdateProviderHeadersText,
 	onUpdateModelDraft,
 	getProviderPreset,
-	}: SettingsViewProps) {
+}: SettingsViewProps) {
 	return (
 		<div class="flex w-full min-w-0 flex-col items-stretch overflow-hidden rounded-[20px] border border-[color:var(--vscode-panel-border)] md:flex-row">
 			<div class="min-w-0 border-b border-[color:var(--vscode-panel-border)] md:basis-1/4 md:border-b-0 md:border-r">
@@ -80,7 +70,7 @@ export function SettingsView({
 					{activeSettingsPanel === 'provider' ? (
 						<ProviderSettingsPage
 							editor={editor}
-							setting={setting}
+							settings={settings}
 							onOpenProviderEditor={onOpenProviderEditor}
 							onCloseEditor={onCloseEditor}
 							onDeleteProvider={onDeleteProvider}
@@ -95,7 +85,7 @@ export function SettingsView({
 					{activeSettingsPanel === 'model' ? (
 						<ModelSettingsPage
 							editor={editor}
-							setting={setting}
+							settings={settings}
 							onOpenModelEditor={onOpenModelEditor}
 							onCloseEditor={onCloseEditor}
 							onDeleteModel={onDeleteModel}
