@@ -1,0 +1,93 @@
+---
+description: 5-streaming-ai-responseブランチでの開発時に読み込む
+alwaysApply: false
+---
+5-streaming-ai-responseブランチルール
+===
+
+このブランチで実装することは以下の通りです。
+- streaming 実装へ入る前に、まず workspace の UI をチャット UI 風に改善する
+- workspace 画面では AI からのレスポンス表示領域を画面上部に配置し、AI への指示を入力する form / textarea を画面下部に配置する
+- 送信後は AI への指示 textarea の内容をクリアし、次の入力をすぐ始められる状態にする
+- streaming 形式で受け取ったレスポンスは、画面上部のレスポンス表示領域へ下から順番に追記し、チャットの会話ログとして見えるようにする
+- OpenAI SDK から返る AI レスポンスを、Cursor や Codex extension のように逐次表示できる streaming 形式へ移行する
+- workspace agent の実行結果を「完了後に一括表示」ではなく「開始、差分、完了、失敗」のイベント列として扱えるようにする
+- OpenAI 公式 SDK / API の仕様に沿って、Responses API の streaming event を第一候補として設計する
+- CometAPI / OpenRouter など OpenAI 互換 Provider との互換性を考慮し、Chat Completions streaming への fallback 方針も残す
+- Webview と extension host の message contract を streaming 前提へ拡張し、UI には SDK 固有 event を直接露出しない
+- ファイル編集 JSON の抽出は streaming 中の未確定テキストでは実行せず、完了イベント後に確定済み全文から行う
+
+## 進捗
+- [x] `.cursor/rules/project.mdc` を読み、OpenAI SDK 利用、host 側実行、Secret Storage、UI ルールを確認する
+- [x] `.cursor/rules/branch.mdc` を読み、現在ブランチ名に対応する branch rule の作成方針を確認する
+- [x] 現在ブランチ名が `5-streaming-ai-response` であることを確認する
+- [x] `.cursor/rules/branch/5-streaming-ai-response.mdc` が未作成であることを確認する
+- [x] 既存の workspace agent が `src/host/workspace-agent.ts` で非 streaming の `client.chat.completions.create()` を利用していることを確認する
+- [x] OpenAI Node SDK 公式 README で `client.responses.create({ stream: true })` が async iterable の SSE event を返し、`for await` で処理できることを確認する
+- [x] OpenAI API Reference で Responses API の streaming event に `response.in_progress`、`response.output_text.delta`、`response.output_text.done`、`response.completed`、`response.failed` などがあることを確認する
+- [x] Chat Completions API Reference で `stream: true` 時の `stream_options` と usage chunk の注意点を確認する
+- [x] 実装には進まず、streaming 対応の技術設計だけをこのブランチルールへ記録する
+- [x] workspace UI 改善を streaming 実装より先に行う方針を追加する
+- [x] workspace 画面を、上部に AI レスポンス / 会話ログ、下部に AI 指示 form を置くチャット UI 風レイアウトへ変更する
+- [x] AI 指示 form 送信後に textarea の内容をクリアする
+- [x] streaming delta を受け取るたびに、画面上部のレスポンス表示領域へ下から順番に追記する表示仕様を実装する
+- [x] running 中もレスポンス表示領域が更新され、完了時に最終本文として確定することを確認する
+- [x] `openai` package を dependency として明示する必要があるか確認する
+- [x] Responses API を使える Provider / Model と、Chat Completions fallback が必要な Provider / Model の判定方法を決める
+- [x] host 側の streaming service interface を定義する
+- [x] Webview へ送る streaming message contract を定義する
+- [x] UI 側の逐次表示 state と reducer を定義する
+- [ ] 中断、再試行、タイムアウト、エラー表示の手動確認観点を整理する
+- [x] streaming 完了後の `fileEdits` JSON 抽出と安全書き込みの手動確認観点を整理する
+- [x] これまでの会話を含めて AI エージェントへ送るため、workspace の会話ログを入力に含める
+
+## 参考資料
+- `.cursor/rules/project.mdc`
+- `.cursor/rules/branch.mdc`
+- `.cursor/rules/branch/3-workspace.mdc`
+- `src/host/workspace-agent.ts`
+- `src/extension.ts`
+- `src/core/index.ts`
+- `src/ui/src/types.ts`
+- OpenAI Node SDK README: https://github.com/openai/openai-node
+- OpenAI Responses API Streaming events: https://platform.openai.com/docs/api-reference/responses-streaming
+- OpenAI Chat Completions API Reference: https://platform.openai.com/docs/api-reference/chat/create
+
+## 調査結果・設計まとめ
+- このブランチの実装順序は、まず workspace UI をチャット UI 風に整え、その後に OpenAI SDK streaming の host / message contract / UI state を接続する。streaming の内部実装より先に、逐次レスポンスを自然に表示できる画面構造を用意する。
+- workspace UI は画面上部を AI レスポンス / 会話ログ領域、画面下部を AI への指示 form 領域として分離する。ユーザーの視線が上から下へ流れ、下部で入力して上部で結果を確認できる構造にする。
+- AI への指示 textarea は送信成功時点でクリアする。送信後に同じ指示文が残ると次の入力を妨げるため、送信済み prompt は必要に応じて会話ログ側へ user message として残し、入力欄は空に戻す。
+- streaming 形式で受け取った AI レスポンスは、レスポンス表示領域の末尾へ下から順番に追記する。新しい delta は現在実行中の assistant message に append し、次の応答では新しい assistant message として追加する。
+- レスポンス表示領域は、過去の user message / assistant message / error message を時系列に保持するチャットログとして扱う。running 中の assistant message は未完了状態として表示し、完了時に確定済み message へ遷移する。
+- UI ルールに従い、チャット UI 風にしても背景色は使わず、テーマ文字色、横幅最大活用、横スクロール非表示を守る。入力 form は画面下部に置くが、webview の高さが不足する場合は縦スクロールのみ許可する。
+- OpenAI Node SDK 公式 README では、主要なモデル呼び出し API として Responses API が示され、`client.responses.create({ model, input, stream: true })` の戻り値を `for await (const event of stream)` で読む streaming 例が示されている。OpenAI 公式 API を直接使う場合は、`responses` を第一候補にする。
+- 同 README では Chat Completions API は「以前の標準で、継続サポートされる API」として扱われている。既存実装と OpenAI 互換 Provider の安定性を考えると、Chat Completions streaming は互換 fallback として残す。
+- Responses API の streaming event は semantic event として扱える。テキスト差分は `response.output_text.delta` の `delta`、テキスト確定は `response.output_text.done` の `text`、全体完了は `response.completed`、進行中状態は `response.in_progress` を主に参照する。
+- Responses API には function call、MCP、code interpreter、reasoning、refusal などの event もある。このブランチの初期スコープでは UI へ表示する本文 streaming を優先し、未知または未対応 event は telemetry / debug 用に握りつぶさず記録できる構造にする。
+- Chat Completions streaming では、`stream: true` と必要に応じた `stream_options` を使う。`include_usage` を有効にした場合でも、stream が中断されると最終 usage chunk を受け取れない可能性があるため、usage は補助情報として扱い、成功判定の必須条件にしない。
+- 現状の `src/host/workspace-agent.ts` は `client.chat.completions.create()` の完了後に `parseWorkspaceAgentResult()` を実行している。streaming 化後も `fileEdits` の安全性を守るため、chunk 到着ごとに JSON を部分 parse して書き込みへ進めてはならない。
+- ファイル編集 JSON は、stream の `completed` 相当イベント後に蓄積済み全文へ `parseWorkspaceAgentResult()` 相当の処理をかけ、従来通り `writeWorkspaceFileSafely` に渡す。途中 delta は表示専用とする。
+- UI へは OpenAI SDK の raw event を直接送らない。host 側で `WorkspaceAgentStreamEvent` のようなアプリ内 event に正規化し、Webview には `workspace-execution-stream-start`、`workspace-execution-stream-delta`、`workspace-execution-stream-complete`、`workspace-execution-stream-error` のような安定した contract で送る。
+- app 内 event の最小形は以下を想定する。
+
+```ts
+type WorkspaceAgentStreamEvent =
+  | { type: 'start'; requestId?: string; providerName: string; modelName: string; prompt: string; timestamp: string }
+  | { type: 'delta'; delta: string; accumulatedText: string; sequenceNumber?: number; timestamp: string }
+  | { type: 'complete'; text: string; fileEdits: WorkspaceAgentFileEdit[]; rawResponse: string; requestId?: string; timestamp: string }
+  | { type: 'error'; errorMessage: string; requestId?: string; retryable: boolean; timestamp: string };
+```
+
+- `WorkspaceExecutionState` は現状 `response: string` を持つが、streaming 中の表示には `response` を蓄積済み本文として更新するか、`streamingText` / `isStreaming` / `streamEventCount` を追加する設計が必要になる。UI 側は delta を受けるたびに append し、running 状態でも本文を表示する。
+- 実装では `WorkspaceExecutionState` に `messages` と `streamingMessageId` を追加し、`response` は蓄積済み本文として更新している。UI は `messages` を時系列ログとして描画し、running 中の assistant message を同一カードに追記する。
+- 実装では送信時に workspace の会話ログを `conversation` として host に渡し、host 側で履歴 + 今回の指示を 1 本の入力にまとめて OpenAI SDK へ渡している。これにより、直前のやりとりを踏まえた応答が可能になる。
+- Cursor / Codex extension 風の体験では「入力直後にカードを running にする」「delta を低遅延で追記する」「完了時に最終本文へ確定する」「失敗時も途中までの本文を残す」ことを優先する。エラーで途中テキストを消さない。
+- VSCode Webview への postMessage が高頻度になりすぎると UI が詰まるため、host 側で delta を 30-80ms 程度に buffer してまとめて送る、または短い連続 chunk を requestAnimationFrame 相当の UI 更新に寄せる設計にする。
+- 中断対応を入れる場合は `AbortController` を実行単位で持ち、再実行時や明示キャンセル時に現在の stream を abort する。中断後は `error` ではなく `cancelled` 状態を追加するか、error の retryable reason として区別する。
+- OpenAI SDK の client 初期化は project rule 通り host 側に残す。`baseURL`、`apiKey`、`defaultHeaders` は `createWorkspaceOpenAIClient(provider)` に集約し、UI へ `apiKey` を渡さない。
+- Provider / Model には将来的に `supportsStreaming`、`preferredApi`、`streamingMode` のような capability を持たせるとよい。初期値は Responses API 優先だが、CometAPI / OpenRouter で Responses API 互換が不明または不安定な場合は Chat Completions へ fallback する。
+- fallback の判定は Provider 名による分岐を UI や command に散在させず、host の adapter / factory に閉じ込める。例として `createWorkspaceModelRunner({ provider, model })` が `responses` runner または `chatCompletions` runner を返す形にする。
+- エラー表示は現在の `formatWorkspaceAgentError()` を拡張し、stream 開始前エラー、stream 中断、APIError、parse error、file edit apply error を区別する。OpenAI SDK の APIError では status、name、message、request_id を引き続き表示対象にする。
+- stream 完了後の file edit apply は既存の `applyWorkspaceAgentFileEdits()` と同じ安全経路を使う。file edit 保存中も Webview には `workspace-file-edit-state` を返し、AI 本文 streaming とファイル保存 state を混同しない。
+- テスト / 手動確認では、通常応答、長文応答、JSON fileEdits 応答、stream 中 API エラー、手動中断、Provider 設定不足、OpenRouter 追加 header 付き実行、CometAPI 実行を分けて確認する。
+- このブランチではまず設計に従って message contract と runner interface を小さく切り、UI の見た目変更より先に host から Webview へ安全に delta を届けられることを確認する。

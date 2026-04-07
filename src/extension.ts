@@ -14,13 +14,20 @@ import {
 	createSuccessWorkspaceExecutionState,
 	createDefaultSettingConfig,
 	hydrateSettingConfig,
+	getSelectedModel,
+	getSelectedProvider,
+	getConfigurationIssues,
 	normalizeSettingConfig,
 	serializeSettingConfig,
 	type SettingConfig,
 	type WorkspaceFileEditState,
 	type WorkspaceExecutionState,
 } from './core/index';
-import { executeWorkspacePrompt, formatWorkspaceAgentError, type WorkspaceAgentResult } from './host/workspace-agent';
+import {
+	executeWorkspacePromptStream,
+	formatWorkspaceAgentError,
+	type WorkspaceAgentResult,
+} from './host/workspace-agent';
 import { collectWorkspaceContext } from './host/workspace-context';
 import { writeWorkspaceFileSafely } from './host/workspace-file-tools';
 
@@ -55,6 +62,7 @@ type WebviewMessage =
 			type: 'run-workspace-agent';
 			setting: SettingConfig;
 			prompt: string;
+			conversation: WorkspaceExecutionState['messages'];
 	  }
 	| {
 			type: 'request-workspace-file-edit';
@@ -152,10 +160,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			await ensureSettingsDirectory();
 			await fs.writeFile(getSettingsFilePath(), `${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
 			await persistProviderApiKeys(this.context, this.state.setting.providers, normalized.providers);
-			const workspaceExecution =
-				this.state.workspaceExecution.status === 'running'
-					? this.state.workspaceExecution
-					: createIdleWorkspaceExecutionState(normalized);
+			const workspaceExecution = remapWorkspaceExecutionForSetting(this.state.workspaceExecution, normalized);
 
 			this.state = {
 				...this.state,
@@ -208,10 +213,19 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 		this.registerMessageHandlers(panel.webview, 'settings');
 	}
 
-	private async runWorkspaceAgent(setting: SettingConfig, prompt: string) {
+	private async runWorkspaceAgent(
+		setting: SettingConfig,
+		prompt: string,
+		conversation: WorkspaceExecutionState['messages'] = [],
+	) {
 		const normalizedSetting = normalizeSettingConfig(setting);
 		const normalizedPrompt = prompt.trim();
-		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, normalizedPrompt);
+		const runningState = createRunningWorkspaceExecutionState(
+			normalizedSetting,
+			normalizedPrompt,
+			this.state.workspaceExecution.messages,
+		);
+		let currentExecutionState = runningState;
 
 		this.state = {
 			...this.state,
@@ -227,10 +241,48 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 		});
 
 		try {
-			const result = await executeWorkspacePrompt(normalizedSetting, normalizedPrompt);
+			const result = await executeWorkspacePromptStream(normalizedSetting, normalizedPrompt, {
+				conversation,
+				onStart: async (event) => {
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-start',
+						event,
+					});
+				},
+				onDelta: async (event) => {
+					currentExecutionState = updateWorkspaceExecutionStreamingText(currentExecutionState, event.accumulatedText);
+					this.state = {
+						...this.state,
+						workspaceExecution: currentExecutionState,
+					};
+
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-delta',
+						event,
+					});
+				},
+				onComplete: async (event) => {
+					currentExecutionState = updateWorkspaceExecutionStreamingText(currentExecutionState, event.text);
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-complete',
+						event,
+					});
+				},
+				onError: async (event) => {
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-error',
+						event,
+					});
+				},
+			});
 			const appliedEdits = await this.applyWorkspaceAgentFileEdits(result);
 			const response = buildWorkspaceAgentResponseText(result, appliedEdits);
-			const successState = createSuccessWorkspaceExecutionState(normalizedSetting, normalizedPrompt, response);
+			const successState = createSuccessWorkspaceExecutionState(
+				normalizedSetting,
+				normalizedPrompt,
+				response,
+				currentExecutionState.messages,
+			);
 
 			this.state = {
 				...this.state,
@@ -246,7 +298,13 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			});
 		} catch (error) {
 			const errorMessage = formatWorkspaceAgentError(error);
-			const errorState = createErrorWorkspaceExecutionState(normalizedSetting, normalizedPrompt, errorMessage);
+			const errorState = createErrorWorkspaceExecutionState(
+				normalizedSetting,
+				normalizedPrompt,
+				errorMessage,
+				currentExecutionState.response,
+				currentExecutionState.messages,
+			);
 
 			this.state = {
 				...this.state,
@@ -466,7 +524,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			}
 
 			if (message.type === 'run-workspace-agent') {
-				await this.runWorkspaceAgent(message.setting, message.prompt);
+				await this.runWorkspaceAgent(message.setting, message.prompt, message.conversation);
 				return;
 			}
 
@@ -594,6 +652,51 @@ function getProviderSecretKey(providerId: string) {
 
 function getUiDistPath(extensionUri: vscode.Uri) {
 	return vscode.Uri.joinPath(extensionUri, 'src', 'ui', 'dist');
+}
+
+function updateWorkspaceExecutionStreamingText(
+	executionState: WorkspaceExecutionState,
+	accumulatedText: string,
+) {
+	const timestamp = new Date().toISOString();
+	const messages = executionState.messages.map((message) => {
+		if (
+			(executionState.streamingMessageId && message.id === executionState.streamingMessageId) ||
+			(!executionState.streamingMessageId && message.role === 'assistant' && message.status === 'streaming')
+		) {
+			return {
+				...message,
+				content: accumulatedText,
+				status: 'streaming' as const,
+				timestamp,
+			};
+		}
+
+		return message;
+	});
+
+	return {
+		...executionState,
+		response: accumulatedText,
+		messages,
+	};
+}
+
+function remapWorkspaceExecutionForSetting(
+	executionState: WorkspaceExecutionState,
+	setting: SettingConfig,
+): WorkspaceExecutionState {
+	const provider = getSelectedProvider(setting);
+	const model = getSelectedModel(setting);
+
+	return {
+		...executionState,
+		providerName: provider?.name ?? '未選択',
+		modelName: model?.name ?? '未選択',
+		baseUrl: provider?.baseUrl ?? '未設定',
+		configurationIssues: getConfigurationIssues(setting),
+		timestamp: new Date().toISOString(),
+	};
 }
 
 function buildWorkspaceAgentResponseText(

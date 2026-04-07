@@ -7,6 +7,7 @@ import {
 	createIdleWorkspaceFileEditState,
 	createRunningWorkspaceExecutionState,
 	createSuccessWorkspaceExecutionState,
+	createWorkspaceFileEditSafetyNotice,
 	getConfigurationIssues,
 	getSelectedModel,
 	getSelectedProvider,
@@ -52,7 +53,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 	);
 	const [surface] = useState<'workspace' | 'settings'>(initialState.surface ?? 'workspace');
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-	const [prompt, setPrompt] = useState('設定メニューの読み込みと CRUD を確認します。');
+	const [prompt, setPrompt] = useState('');
 	const [fileEditRelativePath, setFileEditRelativePath] = useState(initialState.workspaceFileEdit?.relativePath ?? '');
 	const [fileEditContent, setFileEditContent] = useState(initialState.workspaceFileEdit?.content ?? '');
 	const [editor, setEditor] = useState<EditorState | null>(null);
@@ -99,6 +100,63 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 				return;
 			}
 
+			if (message.type === 'workspace-execution-stream-start') {
+				setBootstrapState((current) => ({
+					...current,
+					message: 'Agent が応答の生成を始めました。',
+					errorMessage: undefined,
+				}));
+				return;
+			}
+
+			if (message.type === 'workspace-execution-stream-delta') {
+				setWorkspaceExecution((current) => {
+					const nextExecution = applyWorkspaceExecutionStreamText(current, message.event.accumulatedText, 'streaming');
+					setBootstrapState((state) => ({
+						...state,
+						workspaceExecution: nextExecution,
+						message: 'Agent が応答を生成しています。',
+						errorMessage: undefined,
+					}));
+					return nextExecution;
+				});
+				return;
+			}
+
+			if (message.type === 'workspace-execution-stream-complete') {
+				setWorkspaceExecution((current) => {
+					const nextExecution = applyWorkspaceExecutionStreamText(current, message.event.text, 'complete');
+					setBootstrapState((state) => ({
+						...state,
+						workspaceExecution: nextExecution,
+						message: 'Agent の応答を受信しました。',
+						errorMessage: undefined,
+					}));
+					return nextExecution;
+				});
+				return;
+			}
+
+			if (message.type === 'workspace-execution-stream-error') {
+				setWorkspaceExecution((current) => {
+					const nextExecution = createErrorWorkspaceExecutionState(
+						setting,
+						current.prompt,
+						message.event.errorMessage,
+						current.response,
+						current.messages,
+					);
+					setBootstrapState((state) => ({
+						...state,
+						workspaceExecution: nextExecution,
+						message: 'Agent の実行に失敗しました。',
+						errorMessage: message.event.errorMessage,
+					}));
+					return nextExecution;
+				});
+				return;
+			}
+
 			if (message.type === 'workspace-file-edit-state') {
 				setWorkspaceFileEdit(message.state);
 				setBootstrapState((current) => ({
@@ -129,17 +187,19 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 
 	function persistSetting(nextSetting: SettingConfig) {
 		const normalized = normalizeSettingConfig(nextSetting);
+		const nextWorkspaceExecution = remapWorkspaceExecutionForSetting(workspaceExecution, normalized);
 		setSetting(normalized);
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
-			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
+			workspaceExecution: remapWorkspaceExecutionForSetting(
+				current.workspaceExecution ?? createIdleWorkspaceExecutionState(normalized),
+				normalized,
+			),
 			message: '設定を保存しています。',
 			errorMessage: undefined,
 		}));
-		setWorkspaceExecution((current) =>
-			current.status === 'running' ? current : createIdleWorkspaceExecutionState(normalized),
-		);
+		setWorkspaceExecution(nextWorkspaceExecution);
 		setSyncStatus('saving');
 		setSyncMessage('設定を保存しています。');
 
@@ -156,7 +216,10 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		setBootstrapState((current) => ({
 			...current,
 			setting: normalized,
-			workspaceExecution: current.workspaceExecution?.status === 'running' ? current.workspaceExecution : createIdleWorkspaceExecutionState(normalized),
+			workspaceExecution: remapWorkspaceExecutionForSetting(
+				current.workspaceExecution ?? createIdleWorkspaceExecutionState(normalized),
+				normalized,
+			),
 			message: 'ローカルプレビューを更新しました。',
 			errorMessage: undefined,
 		}));
@@ -176,15 +239,17 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		});
 	}
 
-	function runAgent() {
-		const trimmedPrompt = prompt.trim();
+	function runAgent(nextPrompt?: string) {
+		const sourcePrompt = nextPrompt ?? prompt;
+		const trimmedPrompt = sourcePrompt.trim();
 		if (trimmedPrompt.length === 0) {
 			setWorkspaceExecution(createIdleWorkspaceExecutionState(setting));
 			return;
 		}
 
 		const normalizedSetting = normalizeSettingConfig(setting);
-		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, trimmedPrompt);
+		const conversation = workspaceExecution.messages;
+		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, trimmedPrompt, workspaceExecution.messages);
 		setWorkspaceExecution(runningState);
 		setBootstrapState((current) => ({
 			...current,
@@ -193,12 +258,14 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			message: 'Agent を実行しています。',
 			errorMessage: undefined,
 		}));
+		setPrompt('');
 
 		if (vscode) {
 			vscode.postMessage({
 				type: 'run-workspace-agent',
 				setting: normalizedSetting,
 				prompt: trimmedPrompt,
+				conversation,
 			});
 			return;
 		}
@@ -209,6 +276,8 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 				normalizedSetting,
 				trimmedPrompt,
 				configurationIssues.join('\n'),
+				runningState.response,
+				runningState.messages,
 			);
 			setWorkspaceExecution(errorState);
 			setBootstrapState((current) => ({
@@ -221,7 +290,12 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		}
 
 		const previewResponse = `${selectedProvider?.name ?? 'Provider'} / ${selectedModel?.name ?? 'Model'} に "${trimmedPrompt}" を送信するローカルプレビューです。`;
-		const successState = createSuccessWorkspaceExecutionState(normalizedSetting, trimmedPrompt, previewResponse);
+		const successState = createSuccessWorkspaceExecutionState(
+			normalizedSetting,
+			trimmedPrompt,
+			previewResponse,
+			runningState.messages,
+		);
 		setWorkspaceExecution(successState);
 		setBootstrapState((current) => ({
 			...current,
@@ -589,7 +663,6 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		selectModel,
 		runAgent,
 		submitWorkspaceFileEdit,
-		retryAgent: runAgent,
 		openProviderEditor,
 		openModelEditor,
 		closeEditor,
@@ -605,6 +678,35 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		openSettings,
 		returnToWorkspace,
 		getProviderPreset,
+	};
+}
+
+function applyWorkspaceExecutionStreamText(
+	execution: WorkspaceExecutionState,
+	accumulatedText: string,
+	status: 'streaming' | 'complete',
+) {
+	const timestamp = new Date().toISOString();
+	const streamingMessageId = execution.streamingMessageId;
+
+	return {
+		...execution,
+		response: accumulatedText,
+		messages: execution.messages.map((message) => {
+			if (
+				(streamingMessageId && message.id === streamingMessageId) ||
+				(!streamingMessageId && message.role === 'assistant' && message.status !== 'error')
+			) {
+				return {
+					...message,
+					content: accumulatedText,
+					status,
+					timestamp,
+				};
+			}
+
+			return message;
+		}),
 	};
 }
 
@@ -643,5 +745,23 @@ function resolveSelectionAfterMutation({
 	return {
 		selectedProviderId: nextProviders[0]?.id ?? '',
 		selectedModelId: '',
+	};
+}
+
+function remapWorkspaceExecutionForSetting(
+	execution: WorkspaceExecutionState,
+	setting: SettingConfig,
+): WorkspaceExecutionState {
+	const provider = getSelectedProvider(setting);
+	const model = getSelectedModel(setting);
+
+	return {
+		...execution,
+		providerName: provider?.name ?? '未選択',
+		modelName: model?.name ?? '未選択',
+		baseUrl: provider?.baseUrl ?? '未設定',
+		configurationIssues: getConfigurationIssues(setting),
+		fileEditSafetyNotice: createWorkspaceFileEditSafetyNotice(),
+		timestamp: new Date().toISOString(),
 	};
 }

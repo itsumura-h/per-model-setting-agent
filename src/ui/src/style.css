@@ -8,8 +8,9 @@
 	default: true;
 	color-scheme: dark;
 	--color-base-100: transparent;
-	--color-base-200: transparent;
-	--color-base-300: transparent;
+	/* ネイティブ select の option などでテーマに追従させる（transparent だと OS 既定の白背景になる） */
+	--color-base-200: var(--vscode-dropdown-background);
+	--color-base-300: var(--vscode-panel-border);
 	--color-base-content: var(--vscode-foreground);
 	--color-primary: var(--vscode-focusBorder);
 	--color-primary-content: var(--vscode-foreground);

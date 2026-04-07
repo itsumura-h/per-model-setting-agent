@@ -13,7 +13,7 @@ function App() {
 	const app = useSettingApp({ initialState, vscode });
 
 	return (
-		<main class="grid w-full min-h-screen gap-4 overflow-x-hidden px-5 pt-4 pb-6 text-base-content">
+		<main class="grid w-full min-h-screen items-stretch gap-4 overflow-x-hidden px-5 pt-4 pb-6 text-base-content">
 			{app.surface === 'workspace' ? (
 					<WorkspaceView
 						bootstrapState={app.bootstrapState}
@@ -29,7 +29,6 @@ function App() {
 						onPromptInput={app.setPrompt}
 						onSelectModel={app.selectModel}
 						onRunAgent={app.runAgent}
-						onRetryAgent={app.retryAgent}
 						onFileEditRelativePathInput={app.setFileEditRelativePath}
 						onFileEditContentInput={app.setFileEditContent}
 						onSubmitFileEdit={app.submitWorkspaceFileEdit}

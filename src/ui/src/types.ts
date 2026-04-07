@@ -18,6 +18,38 @@ export type ExtensionState = {
 	lastSavedAt?: string;
 };
 
+export type WorkspaceExecutionStreamEvent =
+	| {
+			type: 'start';
+			requestId?: string;
+			providerName: string;
+			modelName: string;
+			prompt: string;
+			timestamp: string;
+	  }
+	| {
+			type: 'delta';
+			delta: string;
+			accumulatedText: string;
+			sequenceNumber?: number;
+			timestamp: string;
+	  }
+	| {
+			type: 'complete';
+			text: string;
+			fileEdits: { relativePath: string; content: string }[];
+			rawResponse: string;
+			requestId?: string;
+			timestamp: string;
+	  }
+	| {
+			type: 'error';
+			errorMessage: string;
+			requestId?: string;
+			retryable: boolean;
+			timestamp: string;
+	  };
+
 export type ProviderEditorState = {
 	kind: 'provider';
 	mode: 'create' | 'edit';
@@ -47,6 +79,28 @@ export type ExtensionMessage =
 	| {
 			type: 'workspace-execution-state';
 			state: WorkspaceExecutionState;
+	  }
+	| {
+			type: 'run-workspace-agent';
+			setting: ExtensionState['setting'];
+			prompt: string;
+			conversation: WorkspaceExecutionState['messages'];
+	  }
+	| {
+			type: 'workspace-execution-stream-start';
+			event: Extract<WorkspaceExecutionStreamEvent, { type: 'start' }>;
+	  }
+	| {
+			type: 'workspace-execution-stream-delta';
+			event: Extract<WorkspaceExecutionStreamEvent, { type: 'delta' }>;
+	  }
+	| {
+			type: 'workspace-execution-stream-complete';
+			event: Extract<WorkspaceExecutionStreamEvent, { type: 'complete' }>;
+	  }
+	| {
+			type: 'workspace-execution-stream-error';
+			event: Extract<WorkspaceExecutionStreamEvent, { type: 'error' }>;
 	  }
 	| {
 			type: 'workspace-file-edit-state';

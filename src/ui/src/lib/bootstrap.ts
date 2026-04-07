@@ -28,16 +28,13 @@ export function readBootstrapState(): ExtensionState {
 			const parsed = JSON.parse(raw) as ExtensionState;
 			if (parsed?.setting) {
 				const setting = normalizeSettingConfig(parsed.setting);
-				const workspaceExecution = parsed.workspaceExecution ?? createIdleWorkspaceExecutionState(setting);
+				const workspaceExecution = normalizeWorkspaceExecutionState(parsed.workspaceExecution, setting);
 				const workspaceFileEdit = parsed.workspaceFileEdit ?? createIdleWorkspaceFileEditState();
 				return {
 					...parsed,
 					surface: parsed.surface ?? 'workspace',
 					setting,
-					workspaceExecution: {
-						...workspaceExecution,
-						fileEditSafetyNotice: workspaceExecution.fileEditSafetyNotice ?? createWorkspaceFileEditSafetyNotice(),
-					},
+					workspaceExecution,
 					workspaceFileEdit: {
 						...workspaceFileEdit,
 						safetyNotice: workspaceFileEdit.safetyNotice ?? createWorkspaceFileEditSafetyNotice(),
@@ -50,6 +47,22 @@ export function readBootstrapState(): ExtensionState {
 	}
 
 	return fallbackBootstrapState;
+}
+
+function normalizeWorkspaceExecutionState(
+	workspaceExecution: ExtensionState['workspaceExecution'] | undefined,
+	setting: ExtensionState['setting'],
+) {
+	const nextWorkspaceExecution = workspaceExecution ?? createIdleWorkspaceExecutionState(setting);
+
+	return {
+		...nextWorkspaceExecution,
+		fileEditSafetyNotice: nextWorkspaceExecution.fileEditSafetyNotice ?? createWorkspaceFileEditSafetyNotice(),
+		messages:
+			Array.isArray(nextWorkspaceExecution.messages) && nextWorkspaceExecution.messages.length > 0
+				? nextWorkspaceExecution.messages
+				: createIdleWorkspaceExecutionState(setting).messages,
+	};
 }
 
 export function getVsCodeApi() {
