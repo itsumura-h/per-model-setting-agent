@@ -1,6 +1,6 @@
-import type { WorkspaceFileEditSafetyNotice, WorkspaceFileEditState } from './types';
+import type { AgentToolFileEditSafetyNotice, AgentToolFileEditState } from './types';
 
-export function createWorkspaceFileEditSafetyNotice(): WorkspaceFileEditSafetyNotice {
+export function createAgentToolFileEditSafetyNotice(): AgentToolFileEditSafetyNotice {
 	return {
 		title: 'ファイル編集前の安全確認',
 		items: [
@@ -12,20 +12,20 @@ export function createWorkspaceFileEditSafetyNotice(): WorkspaceFileEditSafetyNo
 	};
 }
 
-export function createIdleWorkspaceFileEditState(workspaceRoot = ''): WorkspaceFileEditState {
+export function createIdleAgentToolFileEditState(workspaceRoot = ''): AgentToolFileEditState {
 	return {
 		status: 'idle',
 		title: '待機中',
 		workspaceRoot,
 		relativePath: '',
 		content: '',
-		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		safetyNotice: createAgentToolFileEditSafetyNotice(),
 		timestamp: new Date().toISOString(),
 		canRetry: false,
 	};
 }
 
-export function createSavingWorkspaceFileEditState(input: {
+export function createSavingAgentToolFileEditState(input: {
 	workspaceRoot: string;
 	relativePath: string;
 	content: string;
@@ -36,13 +36,13 @@ export function createSavingWorkspaceFileEditState(input: {
 		workspaceRoot: input.workspaceRoot,
 		relativePath: input.relativePath,
 		content: input.content,
-		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		safetyNotice: createAgentToolFileEditSafetyNotice(),
 		timestamp: new Date().toISOString(),
 		canRetry: false,
 	};
 }
 
-export function createSuccessWorkspaceFileEditState(input: {
+export function createSuccessAgentToolFileEditState(input: {
 	workspaceRoot: string;
 	relativePath: string;
 	content: string;
@@ -55,13 +55,13 @@ export function createSuccessWorkspaceFileEditState(input: {
 		relativePath: input.relativePath,
 		content: input.content,
 		resultPath: input.resultPath,
-		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		safetyNotice: createAgentToolFileEditSafetyNotice(),
 		timestamp: new Date().toISOString(),
 		canRetry: true,
 	};
 }
 
-export function createErrorWorkspaceFileEditState(input: {
+export function createErrorAgentToolFileEditState(input: {
 	workspaceRoot: string;
 	relativePath: string;
 	content: string;
@@ -74,7 +74,7 @@ export function createErrorWorkspaceFileEditState(input: {
 		relativePath: input.relativePath,
 		content: input.content,
 		errorMessage: input.errorMessage,
-		safetyNotice: createWorkspaceFileEditSafetyNotice(),
+		safetyNotice: createAgentToolFileEditSafetyNotice(),
 		timestamp: new Date().toISOString(),
 		canRetry: true,
 	};

@@ -1,36 +1,38 @@
-import { createErrorWorkspaceFileEditState, type AppState, type WorkspaceFileEditState } from '../../../core/index';
+import { createErrorAgentToolFileEditState, type AppState, type AgentToolFileEditState } from '../../../core/index';
 import type { VsCodeApi } from '../types';
 
-export type UseWorkspaceFileEditParams = {
+export type UseAgentToolFileEditParams = {
 	vscode?: VsCodeApi;
 	fileEditRelativePath: string;
 	fileEditContent: string;
-	setWorkspaceFileEdit: (value: WorkspaceFileEditState | ((current: WorkspaceFileEditState) => WorkspaceFileEditState)) => void;
+	setAgentToolFileEdit: (
+		value: AgentToolFileEditState | ((current: AgentToolFileEditState) => AgentToolFileEditState),
+	) => void;
 	setBootstrapState: (value: AppState | ((current: AppState) => AppState)) => void;
 };
 
-export function useWorkspaceFileEdit({
+export function useAgentToolFileEdit({
 	vscode,
 	fileEditRelativePath,
 	fileEditContent,
-	setWorkspaceFileEdit,
+	setAgentToolFileEdit,
 	setBootstrapState,
-}: UseWorkspaceFileEditParams) {
-	function submitWorkspaceFileEdit() {
+}: UseAgentToolFileEditParams) {
+	function submitAgentToolFileEdit() {
 		const relativePath = fileEditRelativePath.trim();
 		const content = fileEditContent;
 
 		if (relativePath.length === 0) {
-			const errorState = createErrorWorkspaceFileEditState({
+			const errorState = createErrorAgentToolFileEditState({
 				workspaceRoot: '',
 				relativePath: '',
 				content,
 				errorMessage: '編集対象のファイルパスを入力してください。',
 			});
-			setWorkspaceFileEdit(errorState);
+			setAgentToolFileEdit(errorState);
 			setBootstrapState((current) => ({
 				...current,
-				workspaceFileEdit: errorState,
+				agentToolFileEdit: errorState,
 				statusMessage: '編集対象のファイルパスが未入力です。',
 				errorMessage: errorState.errorMessage,
 			}));
@@ -38,16 +40,16 @@ export function useWorkspaceFileEdit({
 		}
 
 		if (!vscode) {
-			const errorState = createErrorWorkspaceFileEditState({
+			const errorState = createErrorAgentToolFileEditState({
 				workspaceRoot: '',
 				relativePath,
 				content,
 				errorMessage: 'VSCode API が見つからないため、ファイル保存は実行できません。',
 			});
-			setWorkspaceFileEdit(errorState);
+			setAgentToolFileEdit(errorState);
 			setBootstrapState((current) => ({
 				...current,
-				workspaceFileEdit: errorState,
+				agentToolFileEdit: errorState,
 				statusMessage: 'ローカルプレビューではファイル保存できません。',
 				errorMessage: errorState.errorMessage,
 			}));
@@ -55,11 +57,11 @@ export function useWorkspaceFileEdit({
 		}
 
 		vscode.postMessage({
-			type: 'request-workspace-file-edit',
+			type: 'request-agent-tool-file-edit',
 			relativePath,
 			content,
 		});
-		setWorkspaceFileEdit((current) => ({
+		setAgentToolFileEdit((current) => ({
 			...current,
 			status: 'saving',
 			title: '保存中',
@@ -70,8 +72,8 @@ export function useWorkspaceFileEdit({
 		}));
 		setBootstrapState((current) => ({
 			...current,
-			workspaceFileEdit: {
-				...current.workspaceFileEdit,
+			agentToolFileEdit: {
+				...current.agentToolFileEdit,
 				status: 'saving',
 				title: '保存中',
 				relativePath,
@@ -84,5 +86,5 @@ export function useWorkspaceFileEdit({
 		}));
 	}
 
-	return { submitWorkspaceFileEdit };
+	return { submitAgentToolFileEdit };
 }

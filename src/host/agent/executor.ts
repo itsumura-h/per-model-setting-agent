@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { createWorkspaceFileEditSafetyNotice, getWorkspaceExecutionContext } from '../../core/index';
+import { createAgentToolFileEditSafetyNotice, getWorkspaceExecutionContext } from '../../core/index';
 import type { SettingsConfig, WorkspaceConversationMessage } from '../../core/index';
 import { collectWorkspaceContext, formatWorkspaceContextForPrompt } from '../workspace-context';
 import { createOpenAIClient, initializeOpenAIAgentsRuntime } from './client';
@@ -43,7 +43,7 @@ export async function executeWorkspacePromptStream(
 		conversation: options?.conversation ?? [],
 		prompt,
 	});
-	const fileEditSafetyNotice = createWorkspaceFileEditSafetyNotice();
+	const agentToolFileEditSafetyNotice = createAgentToolFileEditSafetyNotice();
 	const fileEditDirective = isFileEditRequest(prompt)
 		? [
 				'This request requires file creation or editing.',
@@ -54,7 +54,7 @@ export async function executeWorkspacePromptStream(
 		: [];
 	const systemPrompt = buildSystemPrompt({
 		contextPrompt,
-		fileEditSafetyNotice,
+		agentToolFileEditSafetyNotice,
 		fileEditDirective,
 		extraInstructions: [],
 	});
@@ -86,7 +86,7 @@ export async function executeWorkspacePromptStream(
 		if (fileEditDirective.length > 0 && primaryResult.fileEdits.length === 0) {
 			const retrySystemPrompt = buildSystemPrompt({
 				contextPrompt,
-				fileEditSafetyNotice,
+				agentToolFileEditSafetyNotice,
 				fileEditDirective: [
 					...fileEditDirective,
 					'Your previous response did not include fileEdits.',

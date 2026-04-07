@@ -1,4 +1,4 @@
-import type { WorkspaceExecutionState, WorkspaceFileEditState } from '../../../core/index';
+import type { AgentToolFileEditState, WorkspaceExecutionState } from '../../../core/index';
 import { fieldClass } from '../consts';
 
 type WorkspaceViewProps = {
@@ -9,7 +9,7 @@ type WorkspaceViewProps = {
 		models: { id: string; providerId: string; name: string; enabled: boolean }[];
 	};
 	workspaceExecution: WorkspaceExecutionState;
-	workspaceFileEdit: WorkspaceFileEditState;
+	agentToolFileEdit: AgentToolFileEditState;
 	configurationIssues: string[];
 	prompt: string;
 	fileEditRelativePath: string;
@@ -50,7 +50,7 @@ function GearIcon() {
 export function WorkspaceView({
 	settings,
 	workspaceExecution,
-	workspaceFileEdit,
+	agentToolFileEdit,
 	configurationIssues,
 	prompt,
 	fileEditRelativePath,
@@ -66,7 +66,7 @@ export function WorkspaceView({
 	const trimmedPrompt = prompt.trim();
 	const canSubmit = trimmedPrompt.length > 0 && workspaceExecution.status !== 'running';
 	const trimmedFileEditRelativePath = fileEditRelativePath.trim();
-	const canSaveFile = trimmedFileEditRelativePath.length > 0 && workspaceFileEdit.status !== 'saving';
+	const canSaveFile = trimmedFileEditRelativePath.length > 0 && agentToolFileEdit.status !== 'saving';
 	const availableModels = settings.models.filter((model) => model.enabled);
 
 	return (

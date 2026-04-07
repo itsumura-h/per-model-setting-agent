@@ -1,8 +1,8 @@
 import {
+	createAgentToolFileEditSafetyNotice,
 	createDefaultSettingsConfig,
+	createIdleAgentToolFileEditState,
 	createIdleWorkspaceExecutionState,
-	createIdleWorkspaceFileEditState,
-	createWorkspaceFileEditSafetyNotice,
 	normalizeSettingsConfig,
 } from '../../../core/index';
 import type { AppState, VsCodeApi } from '../types';
@@ -13,7 +13,7 @@ export const fallbackBootstrapState: AppState = {
 	viewMode: 'workspace',
 	settings: fallbackSettings,
 	workspaceExecution: createIdleWorkspaceExecutionState(fallbackSettings),
-	workspaceFileEdit: createIdleWorkspaceFileEditState(),
+	agentToolFileEdit: createIdleAgentToolFileEditState(),
 	filePath: '~/.permosa/setting.json',
 	loadStatus: 'fallback',
 	statusMessage: 'ローカルプレビューを表示しています。',
@@ -46,7 +46,9 @@ export function readBootstrapState(): AppState {
 					parsed.workspaceExecution as AppState['workspaceExecution'] | undefined,
 					settings,
 				);
-				const workspaceFileEdit = (parsed.workspaceFileEdit as AppState['workspaceFileEdit']) ?? createIdleWorkspaceFileEditState();
+				const legacyToolEdit = parsed.agentToolFileEdit ?? parsed.workspaceFileEdit;
+				const agentToolFileEdit =
+					(legacyToolEdit as AppState['agentToolFileEdit'] | undefined) ?? createIdleAgentToolFileEditState();
 				const viewMode =
 					parsed.viewMode === 'settings' || parsed.viewMode === 'workspace'
 						? parsed.viewMode
@@ -58,9 +60,9 @@ export function readBootstrapState(): AppState {
 					viewMode,
 					settings,
 					workspaceExecution,
-					workspaceFileEdit: {
-						...workspaceFileEdit,
-						safetyNotice: workspaceFileEdit.safetyNotice ?? createWorkspaceFileEditSafetyNotice(),
+					agentToolFileEdit: {
+						...agentToolFileEdit,
+						safetyNotice: agentToolFileEdit.safetyNotice ?? createAgentToolFileEditSafetyNotice(),
 					},
 					loadStatus: migrateLoadStatus(parsed),
 					statusMessage:
@@ -79,15 +81,23 @@ export function readBootstrapState(): AppState {
 	return fallbackBootstrapState;
 }
 
+type LegacyWorkspaceExecution = AppState['workspaceExecution'] & {
+	fileEditSafetyNotice?: AppState['workspaceExecution']['agentToolFileEditSafetyNotice'];
+};
+
 function normalizeWorkspaceExecutionState(
 	workspaceExecution: AppState['workspaceExecution'] | undefined,
 	settings: AppState['settings'],
 ) {
 	const nextWorkspaceExecution = workspaceExecution ?? createIdleWorkspaceExecutionState(settings);
+	const legacy = nextWorkspaceExecution as LegacyWorkspaceExecution;
 
 	return {
 		...nextWorkspaceExecution,
-		fileEditSafetyNotice: nextWorkspaceExecution.fileEditSafetyNotice ?? createWorkspaceFileEditSafetyNotice(),
+		agentToolFileEditSafetyNotice:
+			nextWorkspaceExecution.agentToolFileEditSafetyNotice ??
+			legacy.fileEditSafetyNotice ??
+			createAgentToolFileEditSafetyNotice(),
 		messages:
 			Array.isArray(nextWorkspaceExecution.messages) && nextWorkspaceExecution.messages.length > 0
 				? nextWorkspaceExecution.messages

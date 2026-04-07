@@ -1,4 +1,4 @@
-import type { AppState, SettingsConfig, WorkspaceExecutionState, WorkspaceFileEditState } from './types';
+import type { AgentToolFileEditState, AppState, SettingsConfig, WorkspaceExecutionState } from './types';
 
 export type WorkspaceExecutionStreamEvent =
 	| {
@@ -42,7 +42,7 @@ export type WebviewMessage =
 			prompt: string;
 			conversation: WorkspaceExecutionState['messages'];
 	  }
-	| { type: 'request-workspace-file-edit'; relativePath: string; content: string };
+	| { type: 'request-agent-tool-file-edit'; relativePath: string; content: string };
 
 export type IncomingWebviewMessage = WebviewMessage | { type: 'open-settings-panel' } | { type: 'open-main-panel' };
 
@@ -61,4 +61,4 @@ export type ExtensionMessage =
 	| { type: 'workspace-execution-stream-delta'; event: Extract<WorkspaceExecutionStreamEvent, { type: 'delta' }> }
 	| { type: 'workspace-execution-stream-complete'; event: Extract<WorkspaceExecutionStreamEvent, { type: 'complete' }> }
 	| { type: 'workspace-execution-stream-error'; event: Extract<WorkspaceExecutionStreamEvent, { type: 'error' }> }
-	| { type: 'workspace-file-edit-state'; state: WorkspaceFileEditState };
+	| { type: 'agent-tool-file-edit-state'; state: AgentToolFileEditState };

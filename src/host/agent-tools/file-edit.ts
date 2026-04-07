@@ -1,13 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export type WorkspaceFileEditRequest = {
+export type AgentToolFileEditRequest = {
 	workspaceRoot: string;
 	relativePath: string;
 	content: string;
 };
 
-export type WorkspaceFileEditResult = {
+export type AgentToolFileEditResult = {
 	absolutePath: string;
 	relativePath: string;
 };
@@ -32,7 +32,7 @@ function resolveWorkspaceFilePath(workspaceRoot: string, relativePath: string) {
 	};
 }
 
-export async function writeWorkspaceFileSafely(request: WorkspaceFileEditRequest): Promise<WorkspaceFileEditResult> {
+export async function agentToolFileEditWrite(request: AgentToolFileEditRequest): Promise<AgentToolFileEditResult> {
 	if (!request.workspaceRoot.trim()) {
 		throw new Error('workspace root が見つかりません。');
 	}

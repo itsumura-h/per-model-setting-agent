@@ -2,12 +2,12 @@ import { useEffect } from 'preact/hooks';
 
 import {
 	createErrorWorkspaceExecutionState,
+	createIdleAgentToolFileEditState,
 	createIdleWorkspaceExecutionState,
-	createIdleWorkspaceFileEditState,
 	updateWorkspaceExecutionStreamingText,
+	type AgentToolFileEditState,
 	type SettingsConfig,
 	type WorkspaceExecutionState,
-	type WorkspaceFileEditState,
 } from '../../../core/index';
 import type { AppState, ExtensionMessage, VsCodeApi } from '../types';
 
@@ -17,7 +17,7 @@ export type ExtensionMessagingDeps = {
 	setBootstrapState: (value: AppState | ((current: AppState) => AppState)) => void;
 	setSettings: (value: SettingsConfig) => void;
 	setWorkspaceExecution: (value: WorkspaceExecutionState | ((current: WorkspaceExecutionState) => WorkspaceExecutionState)) => void;
-	setWorkspaceFileEdit: (value: WorkspaceFileEditState) => void;
+	setAgentToolFileEdit: (value: AgentToolFileEditState) => void;
 	setSaveStatus: (value: 'idle' | 'saving' | 'saved' | 'error') => void;
 	setStatusMessage: (value: string) => void;
 };
@@ -28,7 +28,7 @@ export function useExtensionMessaging({
 	setBootstrapState,
 	setSettings,
 	setWorkspaceExecution,
-	setWorkspaceFileEdit,
+	setAgentToolFileEdit,
 	setSaveStatus,
 	setStatusMessage,
 }: ExtensionMessagingDeps) {
@@ -40,7 +40,7 @@ export function useExtensionMessaging({
 				setBootstrapState(message.state);
 				setSettings(message.state.settings);
 				setWorkspaceExecution(message.state.workspaceExecution ?? createIdleWorkspaceExecutionState(message.state.settings));
-				setWorkspaceFileEdit(message.state.workspaceFileEdit ?? createIdleWorkspaceFileEditState());
+				setAgentToolFileEdit(message.state.agentToolFileEdit ?? createIdleAgentToolFileEditState());
 				setSaveStatus('saved');
 				setStatusMessage(message.state.statusMessage);
 				return;
@@ -129,11 +129,11 @@ export function useExtensionMessaging({
 				return;
 			}
 
-			if (message.type === 'workspace-file-edit-state') {
-				setWorkspaceFileEdit(message.state);
+			if (message.type === 'agent-tool-file-edit-state') {
+				setAgentToolFileEdit(message.state);
 				setBootstrapState((current) => ({
 					...current,
-					workspaceFileEdit: message.state,
+					agentToolFileEdit: message.state,
 					statusMessage:
 						message.state.status === 'saving'
 							? 'ファイルを保存しています。'

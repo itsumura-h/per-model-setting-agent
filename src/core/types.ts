@@ -93,27 +93,27 @@ export type WorkspaceExecutionState = {
 	streamingMessageId?: string;
 	errorMessage?: string;
 	configurationIssues: string[];
-	fileEditSafetyNotice: WorkspaceFileEditSafetyNotice;
+	agentToolFileEditSafetyNotice: AgentToolFileEditSafetyNotice;
 	timestamp: string;
 	canRetry: boolean;
 };
 
-export type WorkspaceFileEditSafetyNotice = {
+export type AgentToolFileEditSafetyNotice = {
 	title: string;
 	items: string[];
 };
 
-export type WorkspaceFileEditStatus = 'idle' | 'saving' | 'success' | 'error';
+export type AgentToolFileEditStatus = 'idle' | 'saving' | 'success' | 'error';
 
-export type WorkspaceFileEditState = {
-	status: WorkspaceFileEditStatus;
+export type AgentToolFileEditState = {
+	status: AgentToolFileEditStatus;
 	title: string;
 	workspaceRoot: string;
 	relativePath: string;
 	content: string;
 	resultPath?: string;
 	errorMessage?: string;
-	safetyNotice: WorkspaceFileEditSafetyNotice;
+	safetyNotice: AgentToolFileEditSafetyNotice;
 	timestamp: string;
 	canRetry: boolean;
 };
@@ -125,7 +125,7 @@ export type AppState = {
 	viewMode: ViewMode;
 	settings: SettingsConfig;
 	workspaceExecution: WorkspaceExecutionState;
-	workspaceFileEdit: WorkspaceFileEditState;
+	agentToolFileEdit: AgentToolFileEditState;
 	filePath: string;
 	loadStatus: 'fallback' | 'loaded' | 'corrupt';
 	statusMessage: string;

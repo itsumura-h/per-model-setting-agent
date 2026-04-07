@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import {
 	createDefaultSettingsConfig,
 	createIdleWorkspaceExecutionState,
-	createIdleWorkspaceFileEditState,
+	createIdleAgentToolFileEditState,
 	hydrateSettingsConfig,
 	normalizeSettingsConfig,
 	remapWorkspaceExecutionForSetting,
@@ -16,7 +16,7 @@ import {
 	type SettingsConfig,
 	type ViewMode,
 } from '../core/index';
-import { runWorkspaceAgent, runWorkspaceFileEdit, type ControllerState, type OrchestrationAccess } from './agent-orchestrator';
+import { runAgentToolFileEdit, runWorkspaceAgent, type ControllerState, type OrchestrationAccess } from './agent-orchestrator';
 import { collectWorkspaceContext } from './workspace-context';
 import { ensureSettingsDirectory, getSettingsFilePath, readPersistedSettingsFile } from './settings-persistence';
 import { persistProviderApiKeys, readProviderApiKeys } from './secret-storage';
@@ -37,7 +37,7 @@ export class SettingsWebviewController implements vscode.WebviewViewProvider {
 		return {
 			settings,
 			workspaceExecution: createIdleWorkspaceExecutionState(settings),
-			workspaceFileEdit: createIdleWorkspaceFileEditState(workspaceRoot),
+			agentToolFileEdit: createIdleAgentToolFileEditState(workspaceRoot),
 			filePath: getSettingsFilePath(),
 			loadStatus: 'fallback',
 			statusMessage: '初期設定を読み込んでいます。',
@@ -86,7 +86,7 @@ export class SettingsWebviewController implements vscode.WebviewViewProvider {
 				return {
 					settings: defaultSettings,
 					workspaceExecution: createIdleWorkspaceExecutionState(defaultSettings),
-					workspaceFileEdit: createIdleWorkspaceFileEditState(workspaceRoot),
+					agentToolFileEdit: createIdleAgentToolFileEditState(workspaceRoot),
 					filePath,
 					loadStatus: 'fallback',
 					statusMessage: '設定ファイルが見つかりません。既定の provider / model を表示しています。',
@@ -99,7 +99,7 @@ export class SettingsWebviewController implements vscode.WebviewViewProvider {
 			return {
 				settings,
 				workspaceExecution: createIdleWorkspaceExecutionState(settings),
-				workspaceFileEdit: createIdleWorkspaceFileEditState(workspaceRoot),
+				agentToolFileEdit: createIdleAgentToolFileEditState(workspaceRoot),
 				filePath,
 				loadStatus: 'loaded',
 				statusMessage: '設定ファイルを読み込みました。',
@@ -108,7 +108,7 @@ export class SettingsWebviewController implements vscode.WebviewViewProvider {
 			return {
 				settings: defaultSettings,
 				workspaceExecution: createIdleWorkspaceExecutionState(defaultSettings),
-				workspaceFileEdit: createIdleWorkspaceFileEditState(workspaceRoot),
+				agentToolFileEdit: createIdleAgentToolFileEditState(workspaceRoot),
 				filePath,
 				loadStatus: 'corrupt',
 				statusMessage: '設定ファイルの読み込みに失敗しました。既定の provider / model を表示しています。',
@@ -231,8 +231,8 @@ export class SettingsWebviewController implements vscode.WebviewViewProvider {
 				return;
 			}
 
-			if (message.type === 'request-workspace-file-edit') {
-				await runWorkspaceFileEdit(this.orchestrationAccess, message.relativePath, message.content);
+			if (message.type === 'request-agent-tool-file-edit') {
+				await runAgentToolFileEdit(this.orchestrationAccess, message.relativePath, message.content);
 				return;
 			}
 

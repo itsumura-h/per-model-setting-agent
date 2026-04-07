@@ -1,10 +1,10 @@
 import {
+	createErrorAgentToolFileEditState,
 	createErrorWorkspaceExecutionState,
-	createErrorWorkspaceFileEditState,
 	createRunningWorkspaceExecutionState,
-	createSavingWorkspaceFileEditState,
+	createSavingAgentToolFileEditState,
+	createSuccessAgentToolFileEditState,
 	createSuccessWorkspaceExecutionState,
-	createSuccessWorkspaceFileEditState,
 	normalizeSettingsConfig,
 	updateWorkspaceExecutionStreamingText,
 	type AppState,
@@ -14,7 +14,7 @@ import {
 } from '../core/index';
 import { executeWorkspacePromptStream, formatAgentError, type AgentResult } from './workspace-agent';
 import { collectWorkspaceContext } from './workspace-context';
-import { writeWorkspaceFileSafely } from './workspace-file-tools';
+import { agentToolFileEditWrite } from './agent-tools/file-edit';
 
 export type ControllerState = Omit<AppState, 'viewMode'>;
 
@@ -103,7 +103,7 @@ export async function runWorkspaceAgent(
 				},
 			},
 		});
-		const appliedEdits = await applyAgentFileEdits(access, result);
+		const appliedEdits = await applyAgentToolFileEdits(access, result);
 		const response = buildAgentResponseText(result, appliedEdits);
 		const successState = createSuccessWorkspaceExecutionState(
 			normalizedSettings,
@@ -149,7 +149,7 @@ export async function runWorkspaceAgent(
 	}
 }
 
-async function applyAgentFileEdits(access: OrchestrationAccess, result: AgentResult) {
+async function applyAgentToolFileEdits(access: OrchestrationAccess, result: AgentResult) {
 	const workspaceContext = collectWorkspaceContext();
 	if (!workspaceContext.workspacePath.trim() || result.fileEdits.length === 0) {
 		return [];
@@ -160,7 +160,7 @@ async function applyAgentFileEdits(access: OrchestrationAccess, result: AgentRes
 
 	for (const fileEdit of result.fileEdits) {
 		const normalizedRelativePath = fileEdit.relativePath.trim();
-		const savingState = createSavingWorkspaceFileEditState({
+		const savingState = createSavingAgentToolFileEditState({
 			workspaceRoot: workspaceContext.workspacePath,
 			relativePath: normalizedRelativePath,
 			content: fileEdit.content,
@@ -168,26 +168,26 @@ async function applyAgentFileEdits(access: OrchestrationAccess, result: AgentRes
 
 		setState({
 			...getState(),
-			workspaceFileEdit: savingState,
+			agentToolFileEdit: savingState,
 			statusMessage: `ファイルを保存しています: ${normalizedRelativePath}`,
 			errorMessage: undefined,
 		});
 
 		await broadcastMessage({
-			type: 'workspace-file-edit-state',
+			type: 'agent-tool-file-edit-state',
 			state: savingState,
 		});
 
 		let applied: { relativePath: string; absolutePath: string };
 		try {
-			applied = await writeWorkspaceFileSafely({
+			applied = await agentToolFileEditWrite({
 				workspaceRoot: workspaceContext.workspacePath,
 				relativePath: normalizedRelativePath,
 				content: fileEdit.content,
 			});
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const errorState = createErrorWorkspaceFileEditState({
+			const errorState = createErrorAgentToolFileEditState({
 				workspaceRoot: workspaceContext.workspacePath,
 				relativePath: normalizedRelativePath,
 				content: fileEdit.content,
@@ -196,20 +196,20 @@ async function applyAgentFileEdits(access: OrchestrationAccess, result: AgentRes
 
 			setState({
 				...getState(),
-				workspaceFileEdit: errorState,
+				agentToolFileEdit: errorState,
 				statusMessage: 'ファイルの保存に失敗しました。',
 				errorMessage,
 			});
 
 			await broadcastMessage({
-				type: 'workspace-file-edit-state',
+				type: 'agent-tool-file-edit-state',
 				state: errorState,
 			});
 
 			throw error;
 		}
 
-		const successState = createSuccessWorkspaceFileEditState({
+		const successState = createSuccessAgentToolFileEditState({
 			workspaceRoot: workspaceContext.workspacePath,
 			relativePath: applied.relativePath,
 			content: fileEdit.content,
@@ -218,13 +218,13 @@ async function applyAgentFileEdits(access: OrchestrationAccess, result: AgentRes
 
 		setState({
 			...getState(),
-			workspaceFileEdit: successState,
+			agentToolFileEdit: successState,
 			statusMessage: `ファイルを保存しました: ${applied.relativePath}`,
 			errorMessage: undefined,
 		});
 
 		await broadcastMessage({
-			type: 'workspace-file-edit-state',
+			type: 'agent-tool-file-edit-state',
 			state: successState,
 		});
 
@@ -234,12 +234,12 @@ async function applyAgentFileEdits(access: OrchestrationAccess, result: AgentRes
 	return appliedEdits;
 }
 
-export async function runWorkspaceFileEdit(access: OrchestrationAccess, relativePath: string, content: string) {
+export async function runAgentToolFileEdit(access: OrchestrationAccess, relativePath: string, content: string) {
 	const workspaceContext = collectWorkspaceContext();
 	const normalizedRelativePath = relativePath.trim();
 	const normalizedContent = content;
 	const { getState, setState, broadcastMessage } = access;
-	const savingState = createSavingWorkspaceFileEditState({
+	const savingState = createSavingAgentToolFileEditState({
 		workspaceRoot: workspaceContext.workspacePath,
 		relativePath: normalizedRelativePath,
 		content: normalizedContent,
@@ -247,23 +247,23 @@ export async function runWorkspaceFileEdit(access: OrchestrationAccess, relative
 
 	setState({
 		...getState(),
-		workspaceFileEdit: savingState,
+		agentToolFileEdit: savingState,
 		statusMessage: 'ファイルを保存しています。',
 		errorMessage: undefined,
 	});
 
 	await broadcastMessage({
-		type: 'workspace-file-edit-state',
+		type: 'agent-tool-file-edit-state',
 		state: savingState,
 	});
 
 	try {
-		const result = await writeWorkspaceFileSafely({
+		const result = await agentToolFileEditWrite({
 			workspaceRoot: workspaceContext.workspacePath,
 			relativePath: normalizedRelativePath,
 			content: normalizedContent,
 		});
-		const successState = createSuccessWorkspaceFileEditState({
+		const successState = createSuccessAgentToolFileEditState({
 			workspaceRoot: workspaceContext.workspacePath,
 			relativePath: normalizedRelativePath,
 			content: normalizedContent,
@@ -272,18 +272,18 @@ export async function runWorkspaceFileEdit(access: OrchestrationAccess, relative
 
 		setState({
 			...getState(),
-			workspaceFileEdit: successState,
+			agentToolFileEdit: successState,
 			statusMessage: `ファイルを保存しました: ${result.relativePath}`,
 			errorMessage: undefined,
 		});
 
 		await broadcastMessage({
-			type: 'workspace-file-edit-state',
+			type: 'agent-tool-file-edit-state',
 			state: successState,
 		});
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
-		const errorState = createErrorWorkspaceFileEditState({
+		const errorState = createErrorAgentToolFileEditState({
 			workspaceRoot: workspaceContext.workspacePath,
 			relativePath: normalizedRelativePath,
 			content: normalizedContent,
@@ -292,13 +292,13 @@ export async function runWorkspaceFileEdit(access: OrchestrationAccess, relative
 
 		setState({
 			...getState(),
-			workspaceFileEdit: errorState,
+			agentToolFileEdit: errorState,
 			statusMessage: 'ファイルの保存に失敗しました。',
 			errorMessage,
 		});
 
 		await broadcastMessage({
-			type: 'workspace-file-edit-state',
+			type: 'agent-tool-file-edit-state',
 			state: errorState,
 		});
 	}

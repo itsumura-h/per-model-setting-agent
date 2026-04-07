@@ -1,4 +1,4 @@
-import { createWorkspaceFileEditSafetyNotice } from '../../core/index';
+import { createAgentToolFileEditSafetyNotice } from '../../core/index';
 import type { WorkspaceConversationMessage } from '../../core/index';
 
 export function buildConversationPrompt({
@@ -35,12 +35,12 @@ export function buildConversationPrompt({
 
 export function buildSystemPrompt({
 	contextPrompt,
-	fileEditSafetyNotice,
+	agentToolFileEditSafetyNotice,
 	fileEditDirective,
 	extraInstructions,
 }: {
 	contextPrompt: string;
-	fileEditSafetyNotice: ReturnType<typeof createWorkspaceFileEditSafetyNotice>;
+	agentToolFileEditSafetyNotice: ReturnType<typeof createAgentToolFileEditSafetyNotice>;
 	fileEditDirective: string[];
 	extraInstructions: string[];
 }) {
@@ -55,8 +55,8 @@ export function buildSystemPrompt({
 		'If no file edit is needed, answer normally without a JSON block.',
 		...fileEditDirective,
 		...extraInstructions,
-		fileEditSafetyNotice.title,
-		...fileEditSafetyNotice.items.map((item) => `- ${item}`),
+		agentToolFileEditSafetyNotice.title,
+		...agentToolFileEditSafetyNotice.items.map((item) => `- ${item}`),
 		'Workspace context:',
 		contextPrompt,
 	].join('\n');

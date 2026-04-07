@@ -1,20 +1,20 @@
 import { useState } from 'preact/hooks';
 
 import {
+	createIdleAgentToolFileEditState,
 	createIdleWorkspaceExecutionState,
-	createIdleWorkspaceFileEditState,
 	getConfigurationIssues,
 	getSelectedModelStrict,
 	getSelectedProvider,
+	type AgentToolFileEditState,
 	type SettingsConfig,
 	type WorkspaceExecutionState,
-	type WorkspaceFileEditState,
 } from '../../../core/index';
 import type { AppState, FormEditorState, SettingsNavigationEntry, SettingsSection, VsCodeApi } from '../types';
+import { useAgentToolFileEdit } from './use-agent-tool-file-edit';
 import { useExtensionMessaging } from './use-extension-messaging';
 import { useSettingsCrud } from './use-settings-crud';
 import { useWorkspaceAgent } from './use-workspace-agent';
-import { useWorkspaceFileEdit } from './use-workspace-file-edit';
 
 type UseSettingsAppParams = {
 	initialState: AppState;
@@ -27,14 +27,14 @@ export function useSettingsApp({ initialState, vscode }: UseSettingsAppParams) {
 	const [workspaceExecution, setWorkspaceExecution] = useState<WorkspaceExecutionState>(
 		initialState.workspaceExecution ?? createIdleWorkspaceExecutionState(initialState.settings),
 	);
-	const [workspaceFileEdit, setWorkspaceFileEdit] = useState<WorkspaceFileEditState>(
-		initialState.workspaceFileEdit ?? createIdleWorkspaceFileEditState(),
+	const [agentToolFileEdit, setAgentToolFileEdit] = useState<AgentToolFileEditState>(
+		initialState.agentToolFileEdit ?? createIdleAgentToolFileEditState(),
 	);
 	const [viewMode] = useState<'workspace' | 'settings'>(initialState.viewMode ?? 'workspace');
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
 	const [prompt, setPrompt] = useState('');
-	const [fileEditRelativePath, setFileEditRelativePath] = useState(initialState.workspaceFileEdit?.relativePath ?? '');
-	const [fileEditContent, setFileEditContent] = useState(initialState.workspaceFileEdit?.content ?? '');
+	const [fileEditRelativePath, setFileEditRelativePath] = useState(initialState.agentToolFileEdit?.relativePath ?? '');
+	const [fileEditContent, setFileEditContent] = useState(initialState.agentToolFileEdit?.content ?? '');
 	const [editor, setEditor] = useState<FormEditorState | null>(null);
 	const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
 		initialState.loadStatus === 'corrupt' ? 'error' : initialState.loadStatus === 'fallback' ? 'idle' : 'saved',
@@ -47,7 +47,7 @@ export function useSettingsApp({ initialState, vscode }: UseSettingsAppParams) {
 		setBootstrapState,
 		setSettings,
 		setWorkspaceExecution,
-		setWorkspaceFileEdit,
+		setAgentToolFileEdit,
 		setSaveStatus,
 		setStatusMessage,
 	});
@@ -79,11 +79,11 @@ export function useSettingsApp({ initialState, vscode }: UseSettingsAppParams) {
 		selectedModel: getSelectedModelStrict(settings),
 	});
 
-	const { submitWorkspaceFileEdit } = useWorkspaceFileEdit({
+	const { submitAgentToolFileEdit } = useAgentToolFileEdit({
 		vscode,
 		fileEditRelativePath,
 		fileEditContent,
-		setWorkspaceFileEdit,
+		setAgentToolFileEdit,
 		setBootstrapState,
 	});
 
@@ -110,7 +110,7 @@ export function useSettingsApp({ initialState, vscode }: UseSettingsAppParams) {
 		settingsSection,
 		prompt,
 		workspaceExecution,
-		workspaceFileEdit,
+		agentToolFileEdit,
 		editor,
 		saveStatus,
 		statusMessage,
@@ -127,7 +127,7 @@ export function useSettingsApp({ initialState, vscode }: UseSettingsAppParams) {
 		setFileEditContent,
 		selectModel: crud.selectModel,
 		runAgent,
-		submitWorkspaceFileEdit,
+		submitAgentToolFileEdit,
 		openProviderEditor: crud.openProviderEditor,
 		openModelEditor: crud.openModelEditor,
 		closeEditor: crud.closeEditor,

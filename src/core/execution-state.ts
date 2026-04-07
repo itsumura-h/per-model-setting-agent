@@ -1,4 +1,4 @@
-import { createWorkspaceFileEditSafetyNotice } from './file-edit-state';
+import { createAgentToolFileEditSafetyNotice } from './agent-tool-file-edit-state';
 import {
 	getConfigurationIssues,
 	getSelectedModelStrict,
@@ -57,7 +57,7 @@ export function remapWorkspaceExecutionForSetting(
 		modelName: model?.name ?? '未選択',
 		baseUrl: provider?.baseUrl ?? '未設定',
 		configurationIssues: getConfigurationIssues(settings),
-		fileEditSafetyNotice: createWorkspaceFileEditSafetyNotice(),
+		agentToolFileEditSafetyNotice: createAgentToolFileEditSafetyNotice(),
 		timestamp: new Date().toISOString(),
 	};
 }
@@ -100,7 +100,7 @@ export function createWorkspaceExecutionState(input: {
 		streamingMessageId: input.streamingMessageId,
 		errorMessage: input.errorMessage,
 		configurationIssues,
-		fileEditSafetyNotice: createWorkspaceFileEditSafetyNotice(),
+		agentToolFileEditSafetyNotice: createAgentToolFileEditSafetyNotice(),
 		timestamp: new Date().toISOString(),
 		canRetry: input.canRetry ?? status !== 'idle',
 	};

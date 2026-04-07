@@ -18,7 +18,7 @@ function App() {
 					<WorkspaceView
 						settings={app.settings}
 						workspaceExecution={app.workspaceExecution}
-						workspaceFileEdit={app.workspaceFileEdit}
+						agentToolFileEdit={app.agentToolFileEdit}
 						configurationIssues={app.configurationIssues}
 						prompt={app.prompt}
 						fileEditRelativePath={app.fileEditRelativePath}
@@ -28,7 +28,7 @@ function App() {
 						onRunAgent={app.runAgent}
 						onFileEditRelativePathInput={app.setFileEditRelativePath}
 						onFileEditContentInput={app.setFileEditContent}
-						onSubmitFileEdit={app.submitWorkspaceFileEdit}
+						onSubmitFileEdit={app.submitAgentToolFileEdit}
 						onOpenSettings={() => vscode?.postMessage({ type: 'open-settings-panel' })}
 					/>
 			) : (
