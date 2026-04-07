@@ -1,13 +1,13 @@
 import type { ModelConfig, ProviderConfig } from '../../../core/index';
-import type { EditorState, ExtensionState, SettingsSection } from '../types';
+import type { AppState, FormEditorState, SettingsSection } from '../types';
 
 export type GeneralSettingsPageProps = {
-	bootstrapState: ExtensionState;
+	bootstrapState: AppState;
 };
 
 export type ProviderSettingsPageProps = {
-	editor: EditorState | null;
-	setting: {
+	editor: FormEditorState | null;
+	settings: {
 		selectedProviderId: string;
 		providers: ProviderConfig[];
 	};
@@ -22,8 +22,8 @@ export type ProviderSettingsPageProps = {
 };
 
 export type ModelSettingsPageProps = {
-	editor: EditorState | null;
-	setting: {
+	editor: FormEditorState | null;
+	settings: {
 		providers: ProviderConfig[];
 		models: ModelConfig[];
 	};

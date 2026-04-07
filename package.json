@@ -15,25 +15,25 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:perModelSettingAgent.demoView",
-    "onCommand:perModelSettingAgent.openDemo",
-    "onCommand:perModelSettingAgent.moveToSecondarySideBar"
+    "onView:permosa.workspaceView",
+    "onCommand:permosa.openWorkspace",
+    "onCommand:permosa.moveToSecondarySideBar"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "perModelSettingAgentContainer",
+          "id": "permosaContainer",
           "title": "Per Model Setting Agent",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "perModelSettingAgentContainer": [
+      "permosaContainer": [
         {
-          "id": "perModelSettingAgent.demoView",
+          "id": "permosa.workspaceView",
           "name": "Main Panel",
           "type": "webview"
         }
@@ -41,11 +41,11 @@
     },
     "commands": [
       {
-        "command": "perModelSettingAgent.openDemo",
+        "command": "permosa.openWorkspace",
         "title": "Per Model Setting Agent: Open Main Panel"
       },
       {
-        "command": "perModelSettingAgent.moveToSecondarySideBar",
+        "command": "permosa.moveToSecondarySideBar",
         "title": "Per Model Setting Agent: Move UI to Secondary Side Bar"
       }
     ]

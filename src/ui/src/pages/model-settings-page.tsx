@@ -3,7 +3,7 @@ import { fieldClass } from '../consts';
 
 export function ModelSettingsPage({
 	editor,
-	setting,
+	settings,
 	onOpenModelEditor,
 	onCloseEditor,
 	onDeleteModel,
@@ -24,13 +24,13 @@ export function ModelSettingsPage({
 
 			<div class="grid min-w-0 gap-3.5 rounded-[18px] border border-[color:var(--vscode-panel-border)] p-4">
 				<div class="grid min-w-0 gap-3">
-					{setting.models.length === 0 ? (
+					{settings.models.length === 0 ? (
 						<div class="grid gap-2.5 rounded-2xl border border-[color:var(--vscode-panel-border)] p-3.5">
 							<p>Model がありません。</p>
 							<p class="m-0">Model を追加するとここに一覧表示されます。</p>
 						</div>
 					) : (
-						setting.models.map((model) => {
+						settings.models.map((model) => {
 							const isEditingCurrentModel = editingModelId === model.id;
 
 							return (
@@ -60,8 +60,8 @@ export function ModelSettingsPage({
 															value={editor.draft.providerId}
 															onChange={(event) => onSetModelProviderId((event.currentTarget as HTMLSelectElement).value)}
 														>
-															{setting.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
-															{setting.providers.map((provider) => (
+															{settings.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
+															{settings.providers.map((provider) => (
 																<option key={provider.id} value={provider.id}>
 																	{provider.name}
 																</option>
@@ -157,7 +157,7 @@ export function ModelSettingsPage({
 												</div>
 											</div>
 											<div class="flex flex-wrap gap-2.5 text-sm">
-												<span>{setting.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未設定'}</span>
+												<span>{settings.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未設定'}</span>
 												<span>{model.enabled ? 'enabled' : 'disabled'}</span>
 											</div>
 											{model.description ? <p class="m-0 break-words">{model.description}</p> : null}
@@ -193,8 +193,8 @@ export function ModelSettingsPage({
 											value={editor.draft.providerId}
 											onChange={(event) => onSetModelProviderId((event.currentTarget as HTMLSelectElement).value)}
 										>
-											{setting.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
-											{setting.providers.map((provider) => (
+											{settings.providers.length === 0 ? <option value="">Provider を追加してください</option> : null}
+											{settings.providers.map((provider) => (
 												<option key={provider.id} value={provider.id}>
 													{provider.name}
 												</option>

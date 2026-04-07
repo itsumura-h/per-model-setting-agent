@@ -1,0 +1,222 @@
+---
+description: 7-refactorブランチでの開発時に読み込む
+alwaysApply: false
+---
+7-refactor — 命名リファクタリング
+===
+
+このブランチで実装することは以下の通りです。
+- `src/` 配下のファイル名・型名・関数名・変数名について、意味の曖昧さ・冗長性・不一致を是正する
+
+## 進捗
+- [x] 方針レビュー完了
+- [x] core 層の命名修正
+- [x] host 層の命名修正
+- [x] ui 層の命名修正
+- [x] 全体ビルド・動作確認（`pnpm run _build` 成功）
+
+---
+
+## 調査結果・設計まとめ
+
+### 1. `Setting` → `Settings` に統一
+
+**現状の問題:** `SettingConfig`, `SettingWebviewController`, `useSettingApp`, `useSettingCrud`, `setting-persistence.ts` など、単数形 `Setting` が使われているが、英語では設定全般を指す場合 `Settings` が自然。VSCode 自体も "Settings" を使う。`setting` を単数で使うと「1 つの設定値」のように読め、実際には Provider/Model の集合体を表す型なので不適切。
+
+**方針:**
+| 現在 | 変更後 | 備考 |
+|---|---|---|
+| `SettingConfig` | `SettingsConfig` | |
+| `PersistedSettingConfig` | `PersistedSettingsConfig` | |
+| `SettingWebviewController` | `SettingsWebviewController` | クラス名 |
+| `settingWebviewViewId` | `settingsWebviewViewId` | |
+| `settingWebviewContainerId` | `settingsWebviewContainerId` | |
+| `useSettingApp` | `useSettingsApp` | hook |
+| `useSettingCrud` | `useSettingsCrud` | hook |
+| `UseSettingCrudParams` | `UseSettingsCrudParams` | |
+| `setting-persistence.ts` | `settings-persistence.ts` | ファイル名 |
+| `readPersistedSettingFile` | `readPersistedSettingsFile` | |
+| ローカル変数 `setting` (設定全体を指す場合) | `settings` | 関数引数・state 含む |
+
+**注意:** `SettingsSection`, `SettingsNavigationEntry`, `SettingsSidebar` など、既に `Settings` 複数形になっているものはそのまま。
+
+---
+
+### 2. `Workspace` プレフィックスの冗長な多重付与を整理
+
+**現状の問題:** `WorkspaceExecutionState`, `WorkspaceConversationMessage`, `WorkspaceFileEditState`, `WorkspaceAgentResult` など、ほぼすべての型・関数に `Workspace` が付いている。host 層の `workspace-agent.ts`, `workspace-context.ts`, `workspace-file-tools.ts` もファイル名から既にスコープが明示されており、内部の関数にまで `Workspace` を付けるのは冗長。
+
+**方針:**
+- `core/types.ts` の型名は **外部 (UI 含む) から直接参照される**ため、`Workspace` プレフィックスを残す（名前空間の衝突防止）
+- ただし `Workspace` と `Execution` や `FileEdit` がドメイン的に分離できるなら、ファイル分割時のモジュールスコープで十分なので将来的に削除可能
+- `host/agent/` 配下の **モジュール内部関数** (`requestWorkspaceAgentResponsesStream` 等) は `Workspace` を削除し、モジュールスコープの恩恵で短くする
+
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `createWorkspaceOpenAIClient` | `createOpenAIClient` | `agent/client.ts` 内で十分明確 |
+| `requestWorkspaceAgentResponsesStream` | `requestAgentResponsesStream` | `agent/stream.ts` 内 |
+| `requestWorkspaceAgentChatCompletionStream` | `requestAgentChatCompletionStream` | 同上 |
+| `requestWorkspaceAgentCompletion` | `requestAgentCompletion` | 同上 |
+| `emitWorkspaceAgentStreamEvent` | `emitStreamEvent` | 同上 |
+| `shouldFallbackToChatCompletions` | そのまま | Workspace 付いていない。OK |
+| `ensureWorkspaceAgentFileEdits` | `ensureFileEdits` | `agent/file-edit-inference.ts` 内 |
+| `buildWorkspaceConversationPrompt` | `buildConversationPrompt` | `agent/prompt-builder.ts` 内 |
+| `buildWorkspaceAgentSystemPrompt` | `buildSystemPrompt` | 同上 |
+| `formatWorkspaceAgentError` | `formatAgentError` | `agent/error.ts` 内 |
+| `WorkspaceAgentFileEdit` | `AgentFileEdit` | `agent/types.ts` 内 |
+| `WorkspaceAgentResult` | `AgentResult` | 同上 |
+| `WorkspaceAgentStreamEvent` | `AgentStreamEvent` | 同上 |
+| `WorkspaceAgentStreamObserver` | `AgentStreamObserver` | 同上 |
+
+**再エクスポート時の互換:** `host/workspace-agent.ts` がバレルとしてこれらを再エクスポートするため、外部から見えるシンボル名は `WorkspaceAgent*` を維持するか、一斉に短縮するか統一する。**推奨:** バレル経由で名前を合わせ、一律 `Agent*` にリネーム。
+
+---
+
+### 3. `RunPreview` の役割が不明瞭
+
+**現状の問題:** `RunPreviewInput`, `RunPreviewResult`, `createRunPreview` はローカルプレビュー（VSCode API なし）のときに設定の整合性を表示するユーティリティだが、"Run" は「実行する」と読めてしまい、実際のAgent実行 (`runWorkspaceAgent`) と紛らわしい。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `RunPreviewInput` | `ConfigPreviewInput` | 設定のプレビューであることを明示 |
+| `RunPreviewResult` | `ConfigPreviewResult` | 同上 |
+| `createRunPreview` | `createConfigPreview` | 同上 |
+| `run-preview.ts` | `config-preview.ts` | ファイル名 |
+
+---
+
+### 4. `ExtensionState` の曖昧さ
+
+**現状の問題:** `ExtensionState` は「Extension Host と Webview で共有するブートストラップ状態」と説明があるが、型名だけでは「拡張機能の状態」としか読めず、webview 間の同期用ブートストラップ状態という本質が見えない。UIの `bootstrapState` 変数名も同型を指しており曖昧。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `ExtensionState` | `AppState` | 拡張全体ではなくアプリ状態のスナップショット。簡潔 |
+| `ControllerPersistedState` | `ControllerState` | `Persisted` が付くのに実際はメモリ上のランタイム状態。永続化はファイル書き出し時のみ |
+
+---
+
+### 5. `surface` の意味不明
+
+**現状の問題:** `ExtensionState.surface` は `'workspace' | 'settings'` だが、`surface` という単語だけではどの webview を表示中か分からない。VSCode 用語でもない。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `surface` | `viewMode` | 「ワークスペース表示」と「設定表示」の切り替えモードであることが明確 |
+| 型 `WebviewSurface` | `ViewMode` | 同上 |
+
+---
+
+### 6. `loadMode` の値が実態と不一致
+
+**現状の問題:** `loadMode: 'default' | 'loaded' | 'corrupt'` の `'default'` は「デフォルト設定を使っている」ことを意味するが、`loadMode` という名前から「デフォルトのロード方法」に読める。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `loadMode` | `loadStatus` | 読込の結果状態を示す |
+| `'default'` | `'fallback'` | デフォルト設定にフォールバックしたことを明示 |
+
+---
+
+### 7. `message` フィールドの曖昧さ
+
+**現状の問題:** `ExtensionState.message` は直近の操作結果を示す文字列だが、名前が汎用すぎて `WorkspaceConversationMessage` 等と混同しやすい。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `ExtensionState.message` | `statusMessage` | 状態メッセージであることを明示 |
+| `syncMessage` (UI) | `statusMessage` | 同上と統一 |
+
+---
+
+### 8. `persistSetting` (UI hook) の名前が役割と不一致
+
+**現状の問題:** `useSettingCrud` の `persistSetting` は、ローカル state を更新した上で postMessage する関数だが、"persist" は永続化（ファイル保存）を連想させる。実際のファイル保存は host 側の `saveState` で行われる。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `persistSetting` (in `useSettingCrud`) | `commitSettings` | ローカル state を確定し host に同期する操作 |
+| `updateSelection` (in `useSettingCrud`) | `commitSelection` | 同上、選択変更を確定する意味 |
+
+---
+
+### 9. `ControllerPersistedState` / `OrchestrationAccess` の所在重複
+
+**現状の問題:** `ControllerPersistedState` が `webview-controller.ts` と `agent-orchestrator.ts` の両方で定義されている。
+
+**方針:** `agent-orchestrator.ts` の定義を正とし、`webview-controller.ts` からは import する。型名自体は上記 4 で `ControllerState` に変更。
+
+---
+
+### 10. `perModelSettingAgent` (拡張ID) の改善
+
+**現状の問題:** VIEW_ID が `perModelSettingAgent.demoView`、コマンドが `perModelSettingAgent.openDemo` で `demo` が残っている。プロダクション用の拡張機能名として不適切。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `perModelSettingAgent.demoView` | `permosa.workspaceView` | 製品名 `permosa` + 本来の用途 |
+| `perModelSettingAgentContainer` | `permosaContainer` | 簡潔 |
+| `perModelSettingAgent.settingsPanel` | `permosa.settingsPanel` | 統一 |
+| `perModelSettingAgent.openDemo` | `permosa.openWorkspace` | demo → 実態に即した名前 |
+| `perModelSettingAgent.moveToSecondarySideBar` | `permosa.moveToSecondarySideBar` | プレフィックス統一 |
+
+**注意:** `package.json` の `contributes.views`, `contributes.commands` も同時に変更が必要。
+
+---
+
+### 11. 重複する selector (`getSelectedModel` vs `getWorkspaceSelectedModel`)
+
+**現状の問題:** `getSelectedModel` は `selectedProviderId` と `selectedModelId` の両方でフィルタし、`getWorkspaceSelectedModel` は `selectedModelId` のみでフィルタする。名前からこの違いが分からない。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `getSelectedModel` | `getSelectedModelStrict` | Provider も一致するモデルのみ返す厳密版 |
+| `getWorkspaceSelectedModel` | `getSelectedModel` | Model ID だけで検索する標準版 |
+| `getWorkspaceSelectedProvider` | `getSelectedProviderByModel` | 選択モデルから逆引きする意味を明示 |
+
+---
+
+### 12. host/agent 配下のファイル名統一
+
+**現状の問題:** `file-edit-inference.ts`, `response-parser.ts`, `prompt-builder.ts` はすべて agent 固有の処理だが、ファイル名にその情報がない（ディレクトリが `agent/` なので必須ではないが、他の `stream.ts`, `client.ts`, `error.ts` と命名規則がバラバラ）。
+
+**方針:** ディレクトリが `agent/` であることから `agent-` プレフィックスは不要。現在のファイル名で十分。**変更なし**。ただし `types.ts` で定義している `WorkspaceAgent*` 型は上記 2 の方針に従いリネーム。
+
+---
+
+### 13. UI types の `EditorState` が汎用すぎる
+
+**現状の問題:** `EditorState` = `ProviderEditorState | ModelEditorState` だが、「エディタの状態」ではテキストエディタの状態と混同する。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `EditorState` | `FormEditorState` | フォーム編集状態であることを明示 |
+| `ProviderEditorState` | `ProviderFormState` | 同上 |
+| `ModelEditorState` | `ModelFormState` | 同上 |
+
+---
+
+### 14. `syncStatus` / `syncMessage` の曖昧さ (UI)
+
+**現状の問題:** `syncStatus` は `'idle' | 'saving' | 'saved' | 'error'` で、設定の保存状態を示す。"sync" は双方向同期を連想させるが、実際は host への片方向 persistance。
+
+**方針:**
+| 現在 | 変更後 | 理由 |
+|---|---|---|
+| `syncStatus` | `saveStatus` | 保存操作の状態であることを明示 |
+| `syncMessage` | `statusMessage` | 項目 7 と統一 |
+
+---
+
+## 参考資料
+- プロジェクトルール: `.cursor/rules/project.mdc`
+- 既存 `package.json` の contributes セクション（VIEW_ID・コマンドID の変更時に参照）

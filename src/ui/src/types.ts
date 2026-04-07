@@ -1,56 +1,14 @@
-import {
-	type ModelConfig,
-	type ProviderConfig,
-	type SettingConfig,
-	type WorkspaceFileEditState,
-	type WorkspaceExecutionState,
+import type {
+	AppState,
+	ExtensionMessage,
+	ModelConfig,
+	ProviderConfig,
+	WorkspaceExecutionStreamEvent,
 } from '../../core/index';
 
-export type ExtensionState = {
-	surface: 'workspace' | 'settings';
-	setting: SettingConfig;
-	workspaceExecution: WorkspaceExecutionState;
-	workspaceFileEdit: WorkspaceFileEditState;
-	filePath: string;
-	loadMode: 'default' | 'loaded' | 'corrupt';
-	message: string;
-	errorMessage?: string;
-	lastSavedAt?: string;
-};
+export type { ExtensionMessage, AppState, WorkspaceExecutionStreamEvent };
 
-export type WorkspaceExecutionStreamEvent =
-	| {
-			type: 'start';
-			requestId?: string;
-			providerName: string;
-			modelName: string;
-			prompt: string;
-			timestamp: string;
-	  }
-	| {
-			type: 'delta';
-			delta: string;
-			accumulatedText: string;
-			sequenceNumber?: number;
-			timestamp: string;
-	  }
-	| {
-			type: 'complete';
-			text: string;
-			fileEdits: { relativePath: string; content: string }[];
-			rawResponse: string;
-			requestId?: string;
-			timestamp: string;
-	  }
-	| {
-			type: 'error';
-			errorMessage: string;
-			requestId?: string;
-			retryable: boolean;
-			timestamp: string;
-	  };
-
-export type ProviderEditorState = {
+export type ProviderFormState = {
 	kind: 'provider';
 	mode: 'create' | 'edit';
 	draft: ProviderConfig;
@@ -58,54 +16,14 @@ export type ProviderEditorState = {
 	errorMessage?: string;
 };
 
-export type ModelEditorState = {
+export type ModelFormState = {
 	kind: 'model';
 	mode: 'create' | 'edit';
 	draft: ModelConfig;
 	errorMessage?: string;
 };
 
-export type EditorState = ProviderEditorState | ModelEditorState;
-
-export type ExtensionMessage =
-	| {
-			type: 'state-saved';
-			state: ExtensionState;
-	  }
-	| {
-			type: 'state-error';
-			message: string;
-	  }
-	| {
-			type: 'workspace-execution-state';
-			state: WorkspaceExecutionState;
-	  }
-	| {
-			type: 'run-workspace-agent';
-			setting: ExtensionState['setting'];
-			prompt: string;
-			conversation: WorkspaceExecutionState['messages'];
-	  }
-	| {
-			type: 'workspace-execution-stream-start';
-			event: Extract<WorkspaceExecutionStreamEvent, { type: 'start' }>;
-	  }
-	| {
-			type: 'workspace-execution-stream-delta';
-			event: Extract<WorkspaceExecutionStreamEvent, { type: 'delta' }>;
-	  }
-	| {
-			type: 'workspace-execution-stream-complete';
-			event: Extract<WorkspaceExecutionStreamEvent, { type: 'complete' }>;
-	  }
-	| {
-			type: 'workspace-execution-stream-error';
-			event: Extract<WorkspaceExecutionStreamEvent, { type: 'error' }>;
-	  }
-	| {
-			type: 'workspace-file-edit-state';
-			state: WorkspaceFileEditState;
-	  };
+export type FormEditorState = ProviderFormState | ModelFormState;
 
 export type VsCodeApi = {
 	postMessage(message: unknown): void;
