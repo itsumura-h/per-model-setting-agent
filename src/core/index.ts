@@ -65,6 +65,20 @@ export type RunPreviewResult = {
 	timestamp: string;
 };
 
+export type WorkspaceConversationRole = 'system' | 'user' | 'assistant' | 'error';
+
+export type WorkspaceConversationStatus = 'idle' | 'streaming' | 'complete' | 'error';
+
+export type WorkspaceConversationMessage = {
+	id: string;
+	role: WorkspaceConversationRole;
+	title: string;
+	content: string;
+	status: WorkspaceConversationStatus;
+	timestamp: string;
+	canRetry: boolean;
+};
+
 export type WorkspaceExecutionStatus = 'idle' | 'running' | 'success' | 'error';
 
 export type WorkspaceExecutionState = {
@@ -75,6 +89,8 @@ export type WorkspaceExecutionState = {
 	baseUrl: string;
 	prompt: string;
 	response: string;
+	messages: WorkspaceConversationMessage[];
+	streamingMessageId?: string;
 	errorMessage?: string;
 	configurationIssues: string[];
 	fileEditSafetyNotice: WorkspaceFileEditSafetyNotice;
@@ -537,6 +553,8 @@ export function createWorkspaceExecutionState(input: {
 	status: WorkspaceExecutionStatus;
 	title?: string;
 	response?: string;
+	messages?: WorkspaceConversationMessage[];
+	streamingMessageId?: string;
 	errorMessage?: string;
 	canRetry?: boolean;
 }): WorkspaceExecutionState {
@@ -563,6 +581,19 @@ export function createWorkspaceExecutionState(input: {
 					: status === 'error'
 						? '実行に失敗しました。'
 						: 'まだ実行していません。'),
+		messages:
+			input.messages ?? [
+				{
+					id: `system-${Date.now()}`,
+					role: 'system',
+					title: '案内',
+					content: status === 'idle' ? 'プロンプトを入力して送信してください。' : '実行結果を待っています。',
+					status: 'idle',
+					timestamp: new Date().toISOString(),
+					canRetry: false,
+				},
+			],
+		streamingMessageId: input.streamingMessageId,
 		errorMessage: input.errorMessage,
 		configurationIssues,
 		fileEditSafetyNotice: createWorkspaceFileEditSafetyNotice(),
@@ -572,43 +603,144 @@ export function createWorkspaceExecutionState(input: {
 }
 
 export function createIdleWorkspaceExecutionState(setting: SettingConfig) {
+	const now = new Date().toISOString();
+	const hasConfigurationIssues = getConfigurationIssues(setting).length > 0;
 	return createWorkspaceExecutionState({
 		setting,
 		prompt: '',
 		status: 'idle',
 		canRetry: false,
-		response: getConfigurationIssues(setting).length === 0 ? 'プロンプトを入力して送信してください。' : '設定を確認してください。',
+		response: hasConfigurationIssues ? '設定を確認してください。' : 'プロンプトを入力して送信してください。',
+		messages: [
+			{
+				id: `system-${now}`,
+				role: 'system',
+				title: '案内',
+				content: hasConfigurationIssues ? '設定を確認してください。' : 'プロンプトを入力して送信してください。',
+				status: 'idle',
+				timestamp: now,
+				canRetry: false,
+			},
+		],
 	});
 }
 
-export function createRunningWorkspaceExecutionState(setting: SettingConfig, prompt: string) {
+export function createRunningWorkspaceExecutionState(
+	setting: SettingConfig,
+	prompt: string,
+	messages: WorkspaceConversationMessage[] = [],
+) {
+	const now = new Date().toISOString();
 	return createWorkspaceExecutionState({
 		setting,
 		prompt,
 		status: 'running',
 		canRetry: false,
 		response: 'OpenAI 互換 Provider へ送信中です。',
+		messages: [
+			...messages,
+			{
+				id: `user-${now}`,
+				role: 'user',
+				title: 'あなた',
+				content: prompt.trim().length > 0 ? prompt.trim() : '未入力',
+				status: 'complete',
+				timestamp: now,
+				canRetry: false,
+			},
+			{
+				id: `assistant-${now}`,
+				role: 'assistant',
+				title: '応答',
+				content: '',
+				status: 'streaming',
+				timestamp: now,
+				canRetry: false,
+			},
+		],
+		streamingMessageId: `assistant-${now}`,
 	});
 }
 
-export function createSuccessWorkspaceExecutionState(setting: SettingConfig, prompt: string, response: string) {
+export function createSuccessWorkspaceExecutionState(
+	setting: SettingConfig,
+	prompt: string,
+	response: string,
+	messages: WorkspaceConversationMessage[] = [],
+) {
+	const now = new Date().toISOString();
 	return createWorkspaceExecutionState({
 		setting,
 		prompt,
 		status: 'success',
 		canRetry: true,
 		response,
+		messages:
+			messages.length > 0
+				? messages.map((message) =>
+						message.role === 'assistant' && message.status === 'streaming'
+							? {
+									...message,
+									content: response,
+									status: 'complete' as const,
+									timestamp: now,
+									canRetry: true,
+							  }
+							: message,
+				  )
+				: [
+						{
+							id: `assistant-${now}`,
+							role: 'assistant',
+							title: '応答',
+							content: response,
+							status: 'complete',
+							timestamp: now,
+							canRetry: true,
+						},
+				  ],
 	});
 }
 
-export function createErrorWorkspaceExecutionState(setting: SettingConfig, prompt: string, errorMessage: string) {
+export function createErrorWorkspaceExecutionState(
+	setting: SettingConfig,
+	prompt: string,
+	errorMessage: string,
+	response = '実行に失敗しました。',
+	messages: WorkspaceConversationMessage[] = [],
+) {
+	const now = new Date().toISOString();
 	return createWorkspaceExecutionState({
 		setting,
 		prompt,
 		status: 'error',
 		canRetry: true,
-		response: '実行に失敗しました。',
+		response,
 		errorMessage,
+		messages:
+			messages.length > 0
+				? messages.map((message) =>
+						message.role === 'assistant' && message.status === 'streaming'
+							? {
+									...message,
+									content: response,
+									status: 'error' as const,
+									timestamp: now,
+									canRetry: true,
+							  }
+							: message,
+				  )
+				: [
+						{
+							id: `assistant-${now}`,
+							role: 'error',
+							title: 'エラー',
+							content: errorMessage,
+							status: 'error',
+							timestamp: now,
+							canRetry: true,
+						},
+				  ],
 	});
 }
 

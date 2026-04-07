@@ -20,7 +20,11 @@ import {
 	type WorkspaceFileEditState,
 	type WorkspaceExecutionState,
 } from './core/index';
-import { executeWorkspacePrompt, formatWorkspaceAgentError, type WorkspaceAgentResult } from './host/workspace-agent';
+import {
+	executeWorkspacePromptStream,
+	formatWorkspaceAgentError,
+	type WorkspaceAgentResult,
+} from './host/workspace-agent';
 import { collectWorkspaceContext } from './host/workspace-context';
 import { writeWorkspaceFileSafely } from './host/workspace-file-tools';
 
@@ -211,7 +215,12 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 	private async runWorkspaceAgent(setting: SettingConfig, prompt: string) {
 		const normalizedSetting = normalizeSettingConfig(setting);
 		const normalizedPrompt = prompt.trim();
-		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, normalizedPrompt);
+		const runningState = createRunningWorkspaceExecutionState(
+			normalizedSetting,
+			normalizedPrompt,
+			this.state.workspaceExecution.messages,
+		);
+		let currentExecutionState = runningState;
 
 		this.state = {
 			...this.state,
@@ -227,10 +236,47 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 		});
 
 		try {
-			const result = await executeWorkspacePrompt(normalizedSetting, normalizedPrompt);
+			const result = await executeWorkspacePromptStream(normalizedSetting, normalizedPrompt, {
+				onStart: async (event) => {
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-start',
+						event,
+					});
+				},
+				onDelta: async (event) => {
+					currentExecutionState = updateWorkspaceExecutionStreamingText(currentExecutionState, event.accumulatedText);
+					this.state = {
+						...this.state,
+						workspaceExecution: currentExecutionState,
+					};
+
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-delta',
+						event,
+					});
+				},
+				onComplete: async (event) => {
+					currentExecutionState = updateWorkspaceExecutionStreamingText(currentExecutionState, event.text);
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-complete',
+						event,
+					});
+				},
+				onError: async (event) => {
+					await this.broadcastMessage({
+						type: 'workspace-execution-stream-error',
+						event,
+					});
+				},
+			});
 			const appliedEdits = await this.applyWorkspaceAgentFileEdits(result);
 			const response = buildWorkspaceAgentResponseText(result, appliedEdits);
-			const successState = createSuccessWorkspaceExecutionState(normalizedSetting, normalizedPrompt, response);
+			const successState = createSuccessWorkspaceExecutionState(
+				normalizedSetting,
+				normalizedPrompt,
+				response,
+				currentExecutionState.messages,
+			);
 
 			this.state = {
 				...this.state,
@@ -246,7 +292,13 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			});
 		} catch (error) {
 			const errorMessage = formatWorkspaceAgentError(error);
-			const errorState = createErrorWorkspaceExecutionState(normalizedSetting, normalizedPrompt, errorMessage);
+			const errorState = createErrorWorkspaceExecutionState(
+				normalizedSetting,
+				normalizedPrompt,
+				errorMessage,
+				currentExecutionState.response,
+				currentExecutionState.messages,
+			);
 
 			this.state = {
 				...this.state,
@@ -594,6 +646,34 @@ function getProviderSecretKey(providerId: string) {
 
 function getUiDistPath(extensionUri: vscode.Uri) {
 	return vscode.Uri.joinPath(extensionUri, 'src', 'ui', 'dist');
+}
+
+function updateWorkspaceExecutionStreamingText(
+	executionState: WorkspaceExecutionState,
+	accumulatedText: string,
+) {
+	const timestamp = new Date().toISOString();
+	const messages = executionState.messages.map((message) => {
+		if (
+			(executionState.streamingMessageId && message.id === executionState.streamingMessageId) ||
+			(!executionState.streamingMessageId && message.role === 'assistant' && message.status === 'streaming')
+		) {
+			return {
+				...message,
+				content: accumulatedText,
+				status: 'streaming' as const,
+				timestamp,
+			};
+		}
+
+		return message;
+	});
+
+	return {
+		...executionState,
+		response: accumulatedText,
+		messages,
+	};
 }
 
 function buildWorkspaceAgentResponseText(

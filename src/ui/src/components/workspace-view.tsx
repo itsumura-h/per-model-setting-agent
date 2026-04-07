@@ -38,6 +38,16 @@ function buttonClass(disabled?: boolean) {
 		.join(' ');
 }
 
+function iconButtonClass(disabled?: boolean) {
+	return [
+		'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-base font-semibold transition-transform hover:-translate-y-px focus-visible:outline-none focus-visible:border-[color:var(--vscode-focusBorder)]',
+		'border-[color:var(--vscode-panel-border)] hover:border-[color:var(--vscode-focusBorder)]',
+		disabled ? 'cursor-not-allowed opacity-50' : '',
+	]
+		.filter(Boolean)
+		.join(' ');
+}
+
 function syncToneClass(syncStatus: WorkspaceViewProps['syncStatus']) {
 	switch (syncStatus) {
 		case 'saving':
@@ -73,167 +83,156 @@ export function WorkspaceView({
 }: WorkspaceViewProps) {
 	const trimmedPrompt = prompt.trim();
 	const canSubmit = trimmedPrompt.length > 0 && workspaceExecution.status !== 'running';
-	const canRetry = workspaceExecution.canRetry && trimmedPrompt.length > 0;
+	const canRetry = workspaceExecution.canRetry && workspaceExecution.prompt.trim().length > 0;
 	const trimmedFileEditRelativePath = fileEditRelativePath.trim();
 	const canSaveFile = trimmedFileEditRelativePath.length > 0 && workspaceFileEdit.status !== 'saving';
 	const availableModels = setting.models.filter((model) => model.enabled);
+	const selectedProviderName = setting.providers.find((provider) => provider.id === setting.selectedProviderId)?.name ?? '未選択';
+	const selectedModelName = setting.models.find((model) => model.id === setting.selectedModelId)?.name ?? '未選択';
 
 	return (
 		<section class="grid min-w-0 gap-4">
 			<header class="flex flex-wrap items-start justify-between gap-3">
-				<div class="grid min-w-0 gap-1">
-					<h2 class="m-0">Workspace</h2>
-					<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">{bootstrapState.message}</p>
-				</div>
+				<h2 class="m-0 text-lg font-bold">チャット</h2>
 				<button class={buttonClass()} type="button" onClick={onOpenSettings}>
 					設定
 				</button>
 			</header>
-			<p class={`m-0 text-sm ${syncToneClass(syncStatus)}`}>{syncMessage}</p>
+
+			{configurationIssues.length > 0 ? (
+				<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">{configurationIssues[0]}</p>
+			) : null}
 
 			<section class="grid min-w-0 gap-3 rounded-2xl border border-[color:var(--vscode-panel-border)] p-4">
-				<div class="grid min-w-0 gap-3 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
-					<label class="grid min-w-0 gap-2">
-						<span class="text-sm text-[color:var(--vscode-descriptionForeground)]">Model</span>
-						<select
-							class="w-full min-w-0 rounded-[14px] border border-[color:var(--vscode-panel-border)] bg-transparent px-3 py-2 text-[color:var(--vscode-foreground)] outline-none"
-							value={setting.selectedModelId}
-							onChange={(event) => onSelectModel((event.currentTarget as HTMLSelectElement).value)}
-						>
-							{availableModels.length === 0 ? <option value="">Model を追加してください</option> : null}
-							{availableModels.map((model) => {
-								const providerName = setting.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未選択';
-								return (
-									<option key={model.id} value={model.id}>
-										{model.name} · {providerName}
-									</option>
-								);
-							})}
-						</select>
-					</label>
+				<div class="flex flex-wrap items-start justify-between gap-3">
+					<div class="grid gap-1">
+						<p class="m-0 text-sm font-semibold text-[color:var(--vscode-foreground)]">会話ログ</p>
+						<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
+							送信した指示と応答が、下へ積み上がるチャット形式で表示されます。
+						</p>
+					</div>
+					<button class={buttonClass(!canRetry)} type="button" onClick={onRetryAgent} disabled={!canRetry}>
+						再試行
+					</button>
+				</div>
 
+				<div class="flex min-h-[22rem] w-full min-w-0 flex-col gap-3 overflow-y-auto pr-1">
+					{workspaceExecution.messages.length === 0 ? (
+						<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">まだ応答はありません。</p>
+					) : (
+						workspaceExecution.messages.map((message) => renderWorkspaceMessage(message))
+					)}
+				</div>
+			</section>
+
+			<form
+				class="grid min-w-0 gap-3 rounded-[28px] border border-[color:var(--vscode-panel-border)] p-3.5"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (canSubmit) {
+						onRunAgent();
+					}
+				}}
+			>
+				<label class="grid min-w-0 gap-2">
+					<span class="sr-only">AI への指示</span>
 					<textarea
-						class={`${fieldClass} min-h-[150px] resize-none`}
-						rows={6}
+						class={`${fieldClass} min-h-[112px] resize-none rounded-[22px] border-0 px-4 py-3 text-[color:var(--vscode-foreground)]`}
+						rows={4}
 						value={prompt}
 						onInput={(event) => onPromptInput((event.currentTarget as HTMLTextAreaElement).value)}
 						placeholder="Plan, @ for context, / for commands"
 					/>
+				</label>
 
-							<div class="flex flex-wrap items-center justify-between gap-3">
-								<div class="flex flex-wrap items-center gap-2">
-									<button class={buttonClass(!canRetry)} type="button" onClick={onRetryAgent} disabled={!canRetry}>
-										再試行
-									</button>
-							<button class={buttonClass(!canSubmit)} type="button" onClick={onRunAgent} disabled={!canSubmit}>
-								送信
-							</button>
-						</div>
-						<div class="flex items-center gap-2 text-xs text-[color:var(--vscode-descriptionForeground)]">
-							<span>{workspaceExecution.timestamp ? new Date(workspaceExecution.timestamp).toLocaleTimeString('ja-JP') : ''}</span>
-						</div>
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<div class="flex min-w-0 flex-wrap items-center gap-2">
+						<label class="grid min-w-0">
+							<span class="sr-only">Model</span>
+							<select
+								class="min-w-[10rem] rounded-full border border-[color:var(--vscode-panel-border)] bg-transparent px-3 py-2 text-sm text-[color:var(--vscode-foreground)] outline-none"
+								value={setting.selectedModelId}
+								onChange={(event) => onSelectModel((event.currentTarget as HTMLSelectElement).value)}
+								aria-label="Model を選択"
+							>
+								{availableModels.length === 0 ? <option value="">Model を追加してください</option> : null}
+								{availableModels.map((model) => {
+									const providerName = setting.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未選択';
+									return (
+										<option key={model.id} value={model.id}>
+											{model.name} · {providerName}
+										</option>
+									);
+								})}
+							</select>
+						</label>
 					</div>
-					<div class="grid gap-2">
-						<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
-							{workspaceExecution.status === 'running'
-								? 'Agent が応答を生成しています。'
-								: workspaceExecution.status === 'error'
-									? '失敗理由を確認して再試行できます。'
-									: workspaceExecution.status === 'success'
-										? '最新の応答を下に表示しています。'
-										: '送信すると extension host 側で実行されます。'}
-						</p>
 
-							<div class="grid min-w-0 gap-2 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
-								<p class="m-0 text-sm font-semibold text-[color:var(--vscode-foreground)]">
-									{workspaceExecution.fileEditSafetyNotice.title}
-								</p>
-							<ul class="m-0 grid gap-1.5 pl-5 text-sm leading-6 text-[color:var(--vscode-descriptionForeground)]">
-								{workspaceExecution.fileEditSafetyNotice.items.map((item) => (
-									<li key={item}>{item}</li>
-								))}
-							</ul>
-						</div>
-
-						<div class="grid min-w-0 gap-3 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
-							{configurationIssues.length > 0 ? (
-								<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
-									{configurationIssues[0]}
-								</p>
-							) : null}
-
-							<p class="m-0 whitespace-pre-wrap break-words leading-7 text-[color:var(--vscode-foreground)]">
-								{workspaceExecution.response}
-							</p>
-
-							{workspaceExecution.errorMessage ? (
-								<p class="m-0 whitespace-pre-wrap break-words leading-7 text-[color:var(--vscode-errorForeground)]">
-									{workspaceExecution.errorMessage}
-								</p>
-							) : null}
-						</div>
-
-						<div class="grid min-w-0 gap-3 rounded-[20px] border border-[color:var(--vscode-panel-border)] p-4">
-							<div class="grid gap-1">
-								<p class="m-0 text-sm font-semibold text-[color:var(--vscode-foreground)]">ファイル編集</p>
-								<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
-									対象ファイル、差分方針、失敗時の戻し方を先に確認してから保存します。
-								</p>
-							</div>
-
-							<div class="grid gap-1.5 text-sm text-[color:var(--vscode-descriptionForeground)]">
-								<p class="m-0">対象: {trimmedFileEditRelativePath || '未入力'}</p>
-								<p class="m-0">差分方針: 最小差分を基本に必要な変更だけを適用</p>
-								<p class="m-0">戻し方: 元ファイルを復元するか、差分を取り消してください</p>
-							</div>
-
-							{workspaceFileEdit.status === 'saving' ? (
-								<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">ファイルを書き込んでいます。</p>
-							) : null}
-							{workspaceFileEdit.status === 'success' ? (
-								<p class="m-0 text-sm text-[color:var(--vscode-terminal-ansiGreen)]">
-									{workspaceFileEdit.resultPath ? `保存しました: ${workspaceFileEdit.resultPath}` : 'ファイルを保存しました。'}
-								</p>
-							) : null}
-							{workspaceFileEdit.status === 'error' && workspaceFileEdit.errorMessage ? (
-								<p class="m-0 whitespace-pre-wrap break-words text-sm text-[color:var(--vscode-errorForeground)]">
-									{workspaceFileEdit.errorMessage}
-								</p>
-							) : null}
-
-							<label class="grid min-w-0 gap-2">
-								<span class="text-sm text-[color:var(--vscode-descriptionForeground)]">Relative path</span>
-								<input
-									class={fieldClass}
-									value={fileEditRelativePath}
-									onInput={(event) => onFileEditRelativePathInput((event.currentTarget as HTMLInputElement).value)}
-									placeholder="src/example.ts"
-								/>
-							</label>
-
-							<label class="grid min-w-0 gap-2">
-								<span class="text-sm text-[color:var(--vscode-descriptionForeground)]">Content</span>
-								<textarea
-									class={`${fieldClass} min-h-[180px] resize-y`}
-									rows={8}
-									value={fileEditContent}
-									onInput={(event) => onFileEditContentInput((event.currentTarget as HTMLTextAreaElement).value)}
-									placeholder="編集したいファイルの内容を入力してください"
-								/>
-							</label>
-
-							<div class="flex flex-wrap items-center gap-2">
-								<button class={buttonClass(!canSaveFile)} type="button" onClick={onSubmitFileEdit} disabled={!canSaveFile}>
-									保存
-								</button>
-								<span class="text-xs text-[color:var(--vscode-descriptionForeground)]">
-									保存前に対象ファイルと戻し方を確認できます。
-								</span>
-							</div>
-						</div>
+					<div class="flex items-center gap-2">
+						<button
+							class={iconButtonClass(!canRetry)}
+							type="button"
+							onClick={onRetryAgent}
+							disabled={!canRetry}
+							title="再試行"
+							aria-label="再試行"
+						>
+							↻
+						</button>
+						<button
+							class={iconButtonClass(!canSubmit)}
+							type="submit"
+							disabled={!canSubmit}
+							title="送信"
+							aria-label="送信"
+						>
+							↑
+						</button>
 					</div>
 				</div>
-			</section>
+			</form>
 		</section>
+	);
+}
+
+function renderWorkspaceMessage(message: WorkspaceExecutionState['messages'][number]) {
+	const isUser = message.role === 'user';
+	const isAssistant = message.role === 'assistant';
+	const isError = message.role === 'error';
+	const isStreaming = message.status === 'streaming';
+	const content = message.content.trim().length > 0 ? message.content : isStreaming ? '応答を生成しています。' : '';
+
+	return (
+		<article
+			key={message.id}
+			class={`grid min-w-0 max-w-[92%] gap-1 rounded-2xl border px-4 py-3 ${
+				isError
+					? 'self-start border-[color:var(--vscode-errorForeground)]'
+					: isUser
+						? 'self-end border-[color:var(--vscode-focusBorder)]'
+						: 'self-start border-[color:var(--vscode-panel-border)]'
+			}`}
+		>
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<p class="m-0 text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--vscode-descriptionForeground)]">
+					{message.title}
+				</p>
+				<p class="m-0 text-xs text-[color:var(--vscode-descriptionForeground)]">
+					{new Date(message.timestamp).toLocaleTimeString('ja-JP')}
+				</p>
+			</div>
+			<p
+				class={`m-0 whitespace-pre-wrap break-words leading-7 ${
+					isError
+						? 'text-[color:var(--vscode-errorForeground)]'
+						: isAssistant
+							? 'text-[color:var(--vscode-foreground)]'
+							: 'text-[color:var(--vscode-foreground)]'
+				}`}
+			>
+				{content}
+			</p>
+			{isStreaming ? <p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">生成中です。</p> : null}
+		</article>
 	);
 }

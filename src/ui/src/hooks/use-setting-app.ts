@@ -52,7 +52,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 	);
 	const [surface] = useState<'workspace' | 'settings'>(initialState.surface ?? 'workspace');
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-	const [prompt, setPrompt] = useState('設定メニューの読み込みと CRUD を確認します。');
+	const [prompt, setPrompt] = useState('');
 	const [fileEditRelativePath, setFileEditRelativePath] = useState(initialState.workspaceFileEdit?.relativePath ?? '');
 	const [fileEditContent, setFileEditContent] = useState(initialState.workspaceFileEdit?.content ?? '');
 	const [editor, setEditor] = useState<EditorState | null>(null);
@@ -96,6 +96,63 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 									: current.message,
 					errorMessage: message.state.status === 'error' ? message.state.errorMessage : undefined,
 				}));
+				return;
+			}
+
+			if (message.type === 'workspace-execution-stream-start') {
+				setBootstrapState((current) => ({
+					...current,
+					message: 'Agent が応答の生成を始めました。',
+					errorMessage: undefined,
+				}));
+				return;
+			}
+
+			if (message.type === 'workspace-execution-stream-delta') {
+				setWorkspaceExecution((current) => {
+					const nextExecution = applyWorkspaceExecutionStreamText(current, message.event.accumulatedText, 'streaming');
+					setBootstrapState((state) => ({
+						...state,
+						workspaceExecution: nextExecution,
+						message: 'Agent が応答を生成しています。',
+						errorMessage: undefined,
+					}));
+					return nextExecution;
+				});
+				return;
+			}
+
+			if (message.type === 'workspace-execution-stream-complete') {
+				setWorkspaceExecution((current) => {
+					const nextExecution = applyWorkspaceExecutionStreamText(current, message.event.text, 'complete');
+					setBootstrapState((state) => ({
+						...state,
+						workspaceExecution: nextExecution,
+						message: 'Agent の応答を受信しました。',
+						errorMessage: undefined,
+					}));
+					return nextExecution;
+				});
+				return;
+			}
+
+			if (message.type === 'workspace-execution-stream-error') {
+				setWorkspaceExecution((current) => {
+					const nextExecution = createErrorWorkspaceExecutionState(
+						setting,
+						current.prompt,
+						message.event.errorMessage,
+						current.response,
+						current.messages,
+					);
+					setBootstrapState((state) => ({
+						...state,
+						workspaceExecution: nextExecution,
+						message: 'Agent の実行に失敗しました。',
+						errorMessage: message.event.errorMessage,
+					}));
+					return nextExecution;
+				});
 				return;
 			}
 
@@ -176,15 +233,16 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		});
 	}
 
-	function runAgent() {
-		const trimmedPrompt = prompt.trim();
+	function runAgent(nextPrompt?: string) {
+		const sourcePrompt = nextPrompt ?? prompt;
+		const trimmedPrompt = sourcePrompt.trim();
 		if (trimmedPrompt.length === 0) {
 			setWorkspaceExecution(createIdleWorkspaceExecutionState(setting));
 			return;
 		}
 
 		const normalizedSetting = normalizeSettingConfig(setting);
-		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, trimmedPrompt);
+		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, trimmedPrompt, workspaceExecution.messages);
 		setWorkspaceExecution(runningState);
 		setBootstrapState((current) => ({
 			...current,
@@ -193,6 +251,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			message: 'Agent を実行しています。',
 			errorMessage: undefined,
 		}));
+		setPrompt('');
 
 		if (vscode) {
 			vscode.postMessage({
@@ -209,6 +268,8 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 				normalizedSetting,
 				trimmedPrompt,
 				configurationIssues.join('\n'),
+				runningState.response,
+				runningState.messages,
 			);
 			setWorkspaceExecution(errorState);
 			setBootstrapState((current) => ({
@@ -221,7 +282,12 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		}
 
 		const previewResponse = `${selectedProvider?.name ?? 'Provider'} / ${selectedModel?.name ?? 'Model'} に "${trimmedPrompt}" を送信するローカルプレビューです。`;
-		const successState = createSuccessWorkspaceExecutionState(normalizedSetting, trimmedPrompt, previewResponse);
+		const successState = createSuccessWorkspaceExecutionState(
+			normalizedSetting,
+			trimmedPrompt,
+			previewResponse,
+			runningState.messages,
+		);
 		setWorkspaceExecution(successState);
 		setBootstrapState((current) => ({
 			...current,
@@ -589,7 +655,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		selectModel,
 		runAgent,
 		submitWorkspaceFileEdit,
-		retryAgent: runAgent,
+		retryAgent: () => runAgent(workspaceExecution.prompt),
 		openProviderEditor,
 		openModelEditor,
 		closeEditor,
@@ -605,6 +671,35 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		openSettings,
 		returnToWorkspace,
 		getProviderPreset,
+	};
+}
+
+function applyWorkspaceExecutionStreamText(
+	execution: WorkspaceExecutionState,
+	accumulatedText: string,
+	status: 'streaming' | 'complete',
+) {
+	const timestamp = new Date().toISOString();
+	const streamingMessageId = execution.streamingMessageId;
+
+	return {
+		...execution,
+		response: accumulatedText,
+		messages: execution.messages.map((message) => {
+			if (
+				(streamingMessageId && message.id === streamingMessageId) ||
+				(!streamingMessageId && message.role === 'assistant' && message.status !== 'error')
+			) {
+				return {
+					...message,
+					content: accumulatedText,
+					status,
+					timestamp,
+				};
+			}
+
+			return message;
+		}),
 	};
 }
 

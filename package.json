@@ -58,6 +58,9 @@
     "readme.md",
     "src/ui/dist/**"
   ],
+  "dependencies": {
+    "openai": "^6.33.0"
+  },
   "scripts": {
     "_build": "pnpm run _build:web && pnpm run _build:extension",
     "_build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
