@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import OpenAI, { APIError, type ChatCompletion } from 'openai';
 
 import { createWorkspaceFileEditSafetyNotice, getWorkspaceExecutionContext } from '../core/index';
-import type { ProviderConfig, SettingConfig } from '../core/index';
+import type { ProviderConfig, SettingConfig, WorkspaceConversationMessage } from '../core/index';
 import { collectWorkspaceContext, formatWorkspaceContextForPrompt } from './workspace-context';
 
 export type WorkspaceAgentFileEdit = {
@@ -96,8 +96,12 @@ export async function executeWorkspacePrompt(setting: SettingConfig, prompt: str
 export async function executeWorkspacePromptStream(
 	setting: SettingConfig,
 	prompt: string,
-	observer?: WorkspaceAgentStreamObserver,
+	options?: {
+		conversation?: WorkspaceConversationMessage[];
+		observer?: WorkspaceAgentStreamObserver;
+	},
 ) {
+	const observer = options?.observer;
 	const { provider, model, configurationIssues, isReady } = getWorkspaceExecutionContext(setting);
 	if (!isReady || !provider || !model) {
 		throw new Error(configurationIssues.join('\n') || 'Provider / Model の設定が不足しています。');
@@ -108,6 +112,10 @@ export async function executeWorkspacePromptStream(
 	const client = createWorkspaceOpenAIClient(provider);
 	const workspaceContext = collectWorkspaceContext();
 	const contextPrompt = formatWorkspaceContextForPrompt(workspaceContext);
+	const conversationPrompt = buildWorkspaceConversationPrompt({
+		conversation: options?.conversation ?? [],
+		prompt,
+	});
 	const fileEditSafetyNotice = createWorkspaceFileEditSafetyNotice();
 	const fileEditDirective = isFileEditRequest(prompt)
 		? [
@@ -136,14 +144,43 @@ export async function executeWorkspacePromptStream(
 	});
 
 	try {
-		return await requestWorkspaceAgentResponsesStream({
+		const primaryResult = ensureWorkspaceAgentFileEdits(
+			await requestWorkspaceAgentResponsesStream({
 			client,
 			modelId: model.modelId,
-			prompt: trimmedPrompt,
+			prompt: conversationPrompt,
 			systemPrompt,
 			requestId,
 			observer,
-		});
+			}),
+			prompt,
+		);
+
+		if (fileEditDirective.length > 0 && primaryResult.fileEdits.length === 0) {
+			const retrySystemPrompt = buildWorkspaceAgentSystemPrompt({
+				contextPrompt,
+				fileEditSafetyNotice,
+				fileEditDirective: [
+					...fileEditDirective,
+					'Your previous response did not include fileEdits.',
+					'Respond again with JSON only and include the required fileEdits.',
+					'If the user asked to create a file without explicit content, use an empty string for content.',
+				],
+				extraInstructions: [],
+			});
+
+			return ensureWorkspaceAgentFileEdits(
+				await requestWorkspaceAgentCompletion({
+					client,
+					modelId: model.modelId,
+					prompt: conversationPrompt,
+					systemPrompt: retrySystemPrompt,
+				}),
+				prompt,
+			);
+		}
+
+		return primaryResult;
 	} catch (error) {
 		if (!shouldFallbackToChatCompletions(error)) {
 			const normalizedError = formatWorkspaceAgentError(error);
@@ -158,14 +195,17 @@ export async function executeWorkspacePromptStream(
 		}
 
 		try {
-			return await requestWorkspaceAgentChatCompletionStream({
-				client,
-				modelId: model.modelId,
-				prompt: trimmedPrompt,
-				systemPrompt,
-				requestId,
-				observer,
-			});
+			return ensureWorkspaceAgentFileEdits(
+				await requestWorkspaceAgentChatCompletionStream({
+					client,
+					modelId: model.modelId,
+					prompt: conversationPrompt,
+					systemPrompt,
+					requestId,
+					observer,
+				}),
+				prompt,
+			);
 		} catch (chatError) {
 			await emitWorkspaceAgentStreamEvent(observer, {
 				type: 'error',
@@ -177,6 +217,43 @@ export async function executeWorkspacePromptStream(
 			throw chatError;
 		}
 	}
+}
+
+function buildWorkspaceConversationPrompt({
+	conversation,
+	prompt,
+}: {
+	conversation: WorkspaceConversationMessage[];
+	prompt: string;
+}) {
+	const transcript = conversation
+		.filter((message) => message.status !== 'streaming')
+		.map((message) => {
+			const roleLabel =
+				message.role === 'user'
+					? 'User'
+					: message.role === 'assistant'
+						? 'Assistant'
+						: message.role === 'error'
+							? 'Error'
+							: 'System';
+			const content = message.content.trim();
+
+			return content.length > 0 ? `${roleLabel}: ${content}` : undefined;
+		})
+		.filter((entry): entry is string => Boolean(entry))
+		.join('\n');
+
+	if (transcript.length === 0) {
+		return prompt.trim();
+	}
+
+	return [
+		'Conversation history:',
+		transcript,
+		'Current user request:',
+		prompt.trim(),
+	].join('\n\n');
 }
 
 function buildWorkspaceAgentSystemPrompt({
@@ -375,6 +452,101 @@ async function requestWorkspaceAgentChatCompletionStream({
 	});
 }
 
+async function requestWorkspaceAgentCompletion({
+	client,
+	modelId,
+	prompt,
+	systemPrompt,
+}: {
+	client: OpenAI;
+	modelId: string;
+	prompt: string;
+	systemPrompt: string;
+}): Promise<WorkspaceAgentResult> {
+	const completion = await client.chat.completions.create({
+		model: modelId,
+		messages: [
+			{
+				role: 'system',
+				content: systemPrompt,
+			},
+			{ role: 'user', content: prompt },
+		],
+	});
+
+	return parseWorkspaceAgentResult(extractChatCompletionText(completion));
+}
+
+function ensureWorkspaceAgentFileEdits(result: WorkspaceAgentResult, prompt: string): WorkspaceAgentResult {
+	if (result.fileEdits.length > 0 || !isFileEditRequest(prompt)) {
+		return result;
+	}
+
+	const inferredFileEdits = inferWorkspaceAgentFileEdits(prompt);
+	if (inferredFileEdits.length === 0) {
+		return result;
+	}
+
+	return {
+		...result,
+		fileEdits: inferredFileEdits,
+	};
+}
+
+function inferWorkspaceAgentFileEdits(prompt: string): WorkspaceAgentFileEdit[] {
+	const normalizedPrompt = prompt.trim();
+	if (!normalizedPrompt) {
+		return [];
+	}
+
+	const pathCandidates = [...normalizedPrompt.matchAll(/[A-Za-z0-9._/-]+\.[A-Za-z0-9._-]+/g)]
+		.map((match) => match[0])
+		.map((candidate) => candidate.replace(/^[/\\]+/, '').replace(/[.。．、,!?]+$/g, '').trim())
+		.filter((candidate) => candidate.length > 0);
+
+	const uniqueCandidates = [...new Set(pathCandidates)];
+	if (uniqueCandidates.length === 0) {
+		return [];
+	}
+
+	return uniqueCandidates.slice(0, 3).map((relativePath) => ({
+		relativePath,
+		content: '',
+	}));
+}
+
+function extractChatCompletionText(completion: ChatCompletion) {
+	return completion.choices
+		.map((choice) => extractChatMessageContent(choice?.message?.content))
+		.filter((content): content is string => content.trim().length > 0)
+		.join('\n');
+}
+
+function extractChatMessageContent(content: unknown) {
+	if (typeof content === 'string') {
+		return content;
+	}
+
+	if (!Array.isArray(content)) {
+		return '';
+	}
+
+	return content
+		.map((part) => {
+			if (typeof part === 'string') {
+				return part;
+			}
+
+			if (!part || typeof part !== 'object') {
+				return '';
+			}
+
+			const record = part as Record<string, unknown>;
+			return typeof record.text === 'string' ? record.text : '';
+		})
+		.join('');
+}
+
 async function finalizeWorkspaceAgentStream({
 	text,
 	requestId,
@@ -487,7 +659,7 @@ function normalizeWorkspaceAgentFileEdits(value: unknown): WorkspaceAgentFileEdi
 			const relativePath = typeof record.relativePath === 'string' ? record.relativePath.trim() : '';
 			const content = typeof record.content === 'string' ? record.content : '';
 
-			if (!relativePath || !content.length) {
+			if (!relativePath) {
 				return undefined;
 			}
 

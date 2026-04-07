@@ -81,6 +81,12 @@ export type ExtensionMessage =
 			state: WorkspaceExecutionState;
 	  }
 	| {
+			type: 'run-workspace-agent';
+			setting: ExtensionState['setting'];
+			prompt: string;
+			conversation: WorkspaceExecutionState['messages'];
+	  }
+	| {
 			type: 'workspace-execution-stream-start';
 			event: Extract<WorkspaceExecutionStreamEvent, { type: 'start' }>;
 	  }

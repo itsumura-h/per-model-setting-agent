@@ -104,24 +104,14 @@ export function WorkspaceView({
 			) : null}
 
 			<section class="grid min-w-0 gap-3 rounded-2xl border border-[color:var(--vscode-panel-border)] p-4">
-				<div class="flex flex-wrap items-start justify-between gap-3">
-					<div class="grid gap-1">
-						<p class="m-0 text-sm font-semibold text-[color:var(--vscode-foreground)]">会話ログ</p>
-						<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">
-							送信した指示と応答が、下へ積み上がるチャット形式で表示されます。
-						</p>
-					</div>
+				<div class="flex flex-wrap items-start justify-end gap-3">
 					<button class={buttonClass(!canRetry)} type="button" onClick={onRetryAgent} disabled={!canRetry}>
 						再試行
 					</button>
 				</div>
 
 				<div class="flex min-h-[22rem] w-full min-w-0 flex-col gap-3 overflow-y-auto pr-1">
-					{workspaceExecution.messages.length === 0 ? (
-						<p class="m-0 text-sm text-[color:var(--vscode-descriptionForeground)]">まだ応答はありません。</p>
-					) : (
-						workspaceExecution.messages.map((message) => renderWorkspaceMessage(message))
-					)}
+					{workspaceExecution.messages.map((message) => renderWorkspaceMessage(message))}
 				</div>
 			</section>
 

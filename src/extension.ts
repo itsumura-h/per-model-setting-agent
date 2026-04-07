@@ -59,6 +59,7 @@ type WebviewMessage =
 			type: 'run-workspace-agent';
 			setting: SettingConfig;
 			prompt: string;
+			conversation: WorkspaceExecutionState['messages'];
 	  }
 	| {
 			type: 'request-workspace-file-edit';
@@ -212,7 +213,11 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 		this.registerMessageHandlers(panel.webview, 'settings');
 	}
 
-	private async runWorkspaceAgent(setting: SettingConfig, prompt: string) {
+	private async runWorkspaceAgent(
+		setting: SettingConfig,
+		prompt: string,
+		conversation: WorkspaceExecutionState['messages'] = [],
+	) {
 		const normalizedSetting = normalizeSettingConfig(setting);
 		const normalizedPrompt = prompt.trim();
 		const runningState = createRunningWorkspaceExecutionState(
@@ -237,6 +242,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 
 		try {
 			const result = await executeWorkspacePromptStream(normalizedSetting, normalizedPrompt, {
+				conversation,
 				onStart: async (event) => {
 					await this.broadcastMessage({
 						type: 'workspace-execution-stream-start',
@@ -518,7 +524,7 @@ class SettingWebviewController implements vscode.WebviewViewProvider {
 			}
 
 			if (message.type === 'run-workspace-agent') {
-				await this.runWorkspaceAgent(message.setting, message.prompt);
+				await this.runWorkspaceAgent(message.setting, message.prompt, message.conversation);
 				return;
 			}
 

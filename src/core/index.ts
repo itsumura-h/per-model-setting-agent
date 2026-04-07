@@ -581,18 +581,7 @@ export function createWorkspaceExecutionState(input: {
 					: status === 'error'
 						? '実行に失敗しました。'
 						: 'まだ実行していません。'),
-		messages:
-			input.messages ?? [
-				{
-					id: `system-${Date.now()}`,
-					role: 'system',
-					title: '案内',
-					content: status === 'idle' ? 'プロンプトを入力して送信してください。' : '実行結果を待っています。',
-					status: 'idle',
-					timestamp: new Date().toISOString(),
-					canRetry: false,
-				},
-			],
+		messages: input.messages ?? [],
 		streamingMessageId: input.streamingMessageId,
 		errorMessage: input.errorMessage,
 		configurationIssues,
@@ -611,17 +600,7 @@ export function createIdleWorkspaceExecutionState(setting: SettingConfig) {
 		status: 'idle',
 		canRetry: false,
 		response: hasConfigurationIssues ? '設定を確認してください。' : 'プロンプトを入力して送信してください。',
-		messages: [
-			{
-				id: `system-${now}`,
-				role: 'system',
-				title: '案内',
-				content: hasConfigurationIssues ? '設定を確認してください。' : 'プロンプトを入力して送信してください。',
-				status: 'idle',
-				timestamp: now,
-				canRetry: false,
-			},
-		],
+		messages: [],
 	});
 }
 

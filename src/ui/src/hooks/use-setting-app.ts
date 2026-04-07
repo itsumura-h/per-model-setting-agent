@@ -242,6 +242,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		}
 
 		const normalizedSetting = normalizeSettingConfig(setting);
+		const conversation = workspaceExecution.messages;
 		const runningState = createRunningWorkspaceExecutionState(normalizedSetting, trimmedPrompt, workspaceExecution.messages);
 		setWorkspaceExecution(runningState);
 		setBootstrapState((current) => ({
@@ -258,6 +259,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 				type: 'run-workspace-agent',
 				setting: normalizedSetting,
 				prompt: trimmedPrompt,
+				conversation,
 			});
 			return;
 		}
