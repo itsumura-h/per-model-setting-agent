@@ -3,6 +3,8 @@ import { useEffect, useState } from 'preact/hooks';
 import {
 	createErrorWorkspaceExecutionState,
 	createIdleWorkspaceExecutionState,
+	createErrorWorkspaceFileEditState,
+	createIdleWorkspaceFileEditState,
 	createRunningWorkspaceExecutionState,
 	createSuccessWorkspaceExecutionState,
 	getConfigurationIssues,
@@ -14,6 +16,7 @@ import {
 	type ProviderConfig,
 	type ProviderPresetId,
 	type SettingConfig,
+	type WorkspaceFileEditState,
 	type WorkspaceExecutionState,
 } from '../../../core/index';
 import {
@@ -44,9 +47,14 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 	const [workspaceExecution, setWorkspaceExecution] = useState<WorkspaceExecutionState>(
 		initialState.workspaceExecution ?? createIdleWorkspaceExecutionState(initialState.setting),
 	);
+	const [workspaceFileEdit, setWorkspaceFileEdit] = useState<WorkspaceFileEditState>(
+		initialState.workspaceFileEdit ?? createIdleWorkspaceFileEditState(),
+	);
 	const [surface] = useState<'workspace' | 'settings'>(initialState.surface ?? 'workspace');
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
 	const [prompt, setPrompt] = useState('設定メニューの読み込みと CRUD を確認します。');
+	const [fileEditRelativePath, setFileEditRelativePath] = useState(initialState.workspaceFileEdit?.relativePath ?? '');
+	const [fileEditContent, setFileEditContent] = useState(initialState.workspaceFileEdit?.content ?? '');
 	const [editor, setEditor] = useState<EditorState | null>(null);
 	const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
 		initialState.loadMode === 'corrupt' ? 'error' : initialState.loadMode === 'default' ? 'idle' : 'saved',
@@ -61,6 +69,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 				setBootstrapState(message.state);
 				setSetting(message.state.setting);
 				setWorkspaceExecution(message.state.workspaceExecution ?? createIdleWorkspaceExecutionState(message.state.setting));
+				setWorkspaceFileEdit(message.state.workspaceFileEdit ?? createIdleWorkspaceFileEditState());
 				setSyncStatus('saved');
 				setSyncMessage(message.state.message);
 				return;
@@ -84,6 +93,24 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 								? 'Agent の応答を受信しました。'
 								: message.state.status === 'error'
 									? 'Agent の実行に失敗しました。'
+									: current.message,
+					errorMessage: message.state.status === 'error' ? message.state.errorMessage : undefined,
+				}));
+				return;
+			}
+
+			if (message.type === 'workspace-file-edit-state') {
+				setWorkspaceFileEdit(message.state);
+				setBootstrapState((current) => ({
+					...current,
+					workspaceFileEdit: message.state,
+					message:
+						message.state.status === 'saving'
+							? 'ファイルを保存しています。'
+							: message.state.status === 'success'
+								? 'ファイルを保存しました。'
+								: message.state.status === 'error'
+									? 'ファイルの保存に失敗しました。'
 									: current.message,
 					errorMessage: message.state.status === 'error' ? message.state.errorMessage : undefined,
 				}));
@@ -200,6 +227,74 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 			...current,
 			workspaceExecution: successState,
 			message: 'ローカルプレビューで応答を表示しました。',
+			errorMessage: undefined,
+		}));
+	}
+
+	function submitWorkspaceFileEdit() {
+		const relativePath = fileEditRelativePath.trim();
+		const content = fileEditContent;
+
+		if (relativePath.length === 0) {
+			const errorState = createErrorWorkspaceFileEditState({
+				workspaceRoot: '',
+				relativePath: '',
+				content,
+				errorMessage: '編集対象のファイルパスを入力してください。',
+			});
+			setWorkspaceFileEdit(errorState);
+			setBootstrapState((current) => ({
+				...current,
+				workspaceFileEdit: errorState,
+				message: '編集対象のファイルパスが未入力です。',
+				errorMessage: errorState.errorMessage,
+			}));
+			return;
+		}
+
+		if (!vscode) {
+			const errorState = createErrorWorkspaceFileEditState({
+				workspaceRoot: '',
+				relativePath,
+				content,
+				errorMessage: 'VSCode API が見つからないため、ファイル保存は実行できません。',
+			});
+			setWorkspaceFileEdit(errorState);
+			setBootstrapState((current) => ({
+				...current,
+				workspaceFileEdit: errorState,
+				message: 'ローカルプレビューではファイル保存できません。',
+				errorMessage: errorState.errorMessage,
+			}));
+			return;
+		}
+
+		vscode.postMessage({
+			type: 'request-workspace-file-edit',
+			relativePath,
+			content,
+		});
+		setWorkspaceFileEdit((current) => ({
+			...current,
+			status: 'saving',
+			title: '保存中',
+			relativePath,
+			content,
+			canRetry: false,
+			timestamp: new Date().toISOString(),
+		}));
+		setBootstrapState((current) => ({
+			...current,
+			workspaceFileEdit: {
+				...current.workspaceFileEdit,
+				status: 'saving',
+				title: '保存中',
+				relativePath,
+				content,
+				canRetry: false,
+				timestamp: new Date().toISOString(),
+			},
+			message: 'ファイルを保存しています。',
 			errorMessage: undefined,
 		}));
 	}
@@ -476,6 +571,7 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		settingsSection,
 		prompt,
 		workspaceExecution,
+		workspaceFileEdit,
 		editor,
 		syncStatus,
 		syncMessage,
@@ -486,8 +582,13 @@ export function useSettingApp({ initialState, vscode }: UseSettingAppParams) {
 		settingsNavigation,
 		activeSettingsPanel: settingsSection,
 		setPrompt,
+		fileEditRelativePath,
+		fileEditContent,
+		setFileEditRelativePath,
+		setFileEditContent,
 		selectModel,
 		runAgent,
+		submitWorkspaceFileEdit,
 		retryAgent: runAgent,
 		openProviderEditor,
 		openModelEditor,

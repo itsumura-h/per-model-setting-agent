@@ -31,9 +31,13 @@ alwaysApply: false
 - [x] agent 実行中表示、成功レスポンス表示、失敗表示、再試行導線を UI に実装する
 - [x] ストリーミング表示は初回実装では採用せず、確実に返る非ストリーミング実行に寄せる
 - [x] workspace 内ファイルを編集する tool / action の責務と許可範囲を定義する
-- [ ] ファイル編集前に対象ファイル、差分方針、失敗時の戻し方を UI に通知する設計を固める
+- [x] ファイル編集前に対象ファイル、差分方針、失敗時の戻し方を UI に通知する設計を固める
+- [x] workspace UI から relative path / content を host へ送り、`writeWorkspaceFileSafely` で workspace 内ファイルを作成・更新できる導線を追加する
+- [x] ファイル保存の成功・失敗を extension state と webview に反映する
 - [x] agent が参照する workspace context の最小セットを決める
 - [x] Provider 固有の差分を adapter / factory に閉じ込め、UI と実行ロジックへ分岐を散在させない
+- [x] AI の response から `fileEdits` JSON を抽出し、`writeWorkspaceFileSafely` に流して workspace 内ファイルを作成・更新できるようにする
+- [x] ファイル編集の成功・失敗を `workspace-file-edit-state` として UI に返す
 - [ ] CometAPI / OpenRouter の接続確認観点を整理する
 - [ ] 手動確認項目として「設定反映」「応答表示」「エラー表示」「再試行」「ファイル編集」を一通り通す
 
@@ -64,3 +68,8 @@ alwaysApply: false
 - ファイル編集機能は agent に無制限権限を与えず、workspace 配下のみを対象にし、編集実行前後でユーザーが状況を追える UI を用意する方針を優先する
 - Provider 固有ヘッダーが必要な場合に備え、workspace 実行層は `baseUrl` `apiKey` に加えて追加 headers を扱える構造で持つ
 - UI は project rule に従い、背景色を使わず、テーマ色準拠、横幅最大活用、横スクロール非表示を守る
+- file edit の安全通知は core の共通 notice を用い、host の system prompt と workspace UI の両方で同一内容を示すことで、編集前の確認漏れを防ぐ
+- workspace UI には file edit フォームを追加し、relative path と content を host に送信して `src/host/workspace-file-tools.ts` の安全書き込み処理へ接続した
+- host 側は workspace root を `collectWorkspaceContext()` から解決し、`writeWorkspaceFileSafely` で root 外書き込みを拒否する
+- file edit の結果は `workspace-file-edit-state` として webview に戻し、成功時は保存先、失敗時はエラーメッセージを表示する
+- AI の返答は `assistantMessage` と `fileEdits` を持つ JSON を fenced code block で返せるようにし、JSON が来たときだけ host が実際のファイル書き込みを実行する

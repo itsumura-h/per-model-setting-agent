@@ -1,4 +1,10 @@
-import { createDefaultSettingConfig, createIdleWorkspaceExecutionState, normalizeSettingConfig } from '../../../core/index';
+import {
+	createDefaultSettingConfig,
+	createIdleWorkspaceExecutionState,
+	createIdleWorkspaceFileEditState,
+	createWorkspaceFileEditSafetyNotice,
+	normalizeSettingConfig,
+} from '../../../core/index';
 import type { ExtensionState, VsCodeApi } from '../types';
 
 const fallbackSetting = createDefaultSettingConfig();
@@ -7,6 +13,7 @@ export const fallbackBootstrapState: ExtensionState = {
 	surface: 'workspace',
 	setting: fallbackSetting,
 	workspaceExecution: createIdleWorkspaceExecutionState(fallbackSetting),
+	workspaceFileEdit: createIdleWorkspaceFileEditState(),
 	filePath: '~/.permosa/setting.json',
 	loadMode: 'default',
 	message: 'ローカルプレビューを表示しています。',
@@ -21,11 +28,20 @@ export function readBootstrapState(): ExtensionState {
 			const parsed = JSON.parse(raw) as ExtensionState;
 			if (parsed?.setting) {
 				const setting = normalizeSettingConfig(parsed.setting);
+				const workspaceExecution = parsed.workspaceExecution ?? createIdleWorkspaceExecutionState(setting);
+				const workspaceFileEdit = parsed.workspaceFileEdit ?? createIdleWorkspaceFileEditState();
 				return {
 					...parsed,
 					surface: parsed.surface ?? 'workspace',
 					setting,
-					workspaceExecution: parsed.workspaceExecution ?? createIdleWorkspaceExecutionState(setting),
+					workspaceExecution: {
+						...workspaceExecution,
+						fileEditSafetyNotice: workspaceExecution.fileEditSafetyNotice ?? createWorkspaceFileEditSafetyNotice(),
+					},
+					workspaceFileEdit: {
+						...workspaceFileEdit,
+						safetyNotice: workspaceFileEdit.safetyNotice ?? createWorkspaceFileEditSafetyNotice(),
+					},
 				};
 			}
 		} catch {

@@ -15,20 +15,26 @@ function App() {
 	return (
 		<main class="grid w-full min-h-screen gap-4 overflow-x-hidden px-5 pt-4 pb-6 text-base-content">
 			{app.surface === 'workspace' ? (
-				<WorkspaceView
-					bootstrapState={app.bootstrapState}
-					setting={app.setting}
-					workspaceExecution={app.workspaceExecution}
-					configurationIssues={app.configurationIssues}
-					prompt={app.prompt}
-					syncStatus={app.syncStatus}
-					syncMessage={app.syncMessage}
-					onPromptInput={app.setPrompt}
-					onSelectModel={app.selectModel}
-					onRunAgent={app.runAgent}
-					onRetryAgent={app.retryAgent}
-					onOpenSettings={() => vscode?.postMessage({ type: 'open-settings-panel' })}
-				/>
+					<WorkspaceView
+						bootstrapState={app.bootstrapState}
+						setting={app.setting}
+						workspaceExecution={app.workspaceExecution}
+						workspaceFileEdit={app.workspaceFileEdit}
+						configurationIssues={app.configurationIssues}
+						prompt={app.prompt}
+						fileEditRelativePath={app.fileEditRelativePath}
+						fileEditContent={app.fileEditContent}
+						syncStatus={app.syncStatus}
+						syncMessage={app.syncMessage}
+						onPromptInput={app.setPrompt}
+						onSelectModel={app.selectModel}
+						onRunAgent={app.runAgent}
+						onRetryAgent={app.retryAgent}
+						onFileEditRelativePathInput={app.setFileEditRelativePath}
+						onFileEditContentInput={app.setFileEditContent}
+						onSubmitFileEdit={app.submitWorkspaceFileEdit}
+						onOpenSettings={() => vscode?.postMessage({ type: 'open-settings-panel' })}
+					/>
 			) : (
 				<SettingsView
 					bootstrapState={app.bootstrapState}
