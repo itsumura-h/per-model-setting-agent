@@ -15,7 +15,7 @@ import {
 	type SettingConfig,
 	type WorkspaceExecutionState,
 } from './core/index';
-import { executeWorkspacePrompt, formatWorkspaceAgentError } from './workspace-agent';
+import { executeWorkspacePrompt, formatWorkspaceAgentError } from './host/workspace-agent';
 
 const VIEW_ID = 'perModelSettingAgent.demoView';
 const VIEW_CONTAINER_ID = 'perModelSettingAgentContainer';

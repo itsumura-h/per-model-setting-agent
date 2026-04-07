@@ -160,6 +160,13 @@ Codex拡張機能やCursorの体験を参考に、IDE統合・履歴・実行導
 
 Providerごとの差異はAdapterまたはFactoryに閉じ込める。UIやコマンド実装に直接`baseUrl`やProviderごとの分岐を埋め込まないこと。
 
+推奨ディレクトリ構成は `src/core` `src/host` `src/ui` の3層とする。
+- `src/core`: 設定の型、正規化、selector、共通ユーティリティ
+- `src/host`: VSCode extension host、Secret Storage、OpenAI SDK、Agent 実行、workspace context、file edit 安全制御
+- `src/ui`: webview の表示、入力、状態表示、message contract
+
+OpenAI SDK の実行や `apiKey` の解決は必ず `host` に寄せる。`ui` は prompt と設定状態の表示・送信トリガーに留め、秘匿情報を扱わないこと。
+
 ## 4. データモデル要件
 
 ### 4.1 Provider

@@ -24,15 +24,15 @@ alwaysApply: false
 - [x] OpenAI SDK の client factory を実装し、`baseUrl` と `apiKey` を provider 単位で注入できるようにする
 - [x] workspace UI を Cursor / Codex 風の単一入力カード中心に整理する
 - [x] workspace UI から Provider 選択 dropdown を外し、Model 起点で Provider を解決する
-- [ ] OpenAI Agents JS の初期化箇所を実装し、必要に応じて `setDefaultOpenAIClient()` を利用する
+- [x] OpenAI Agents JS の初期化箇所を実装し、必要に応じて `setDefaultOpenAIClient()` を利用する
 - [x] 利用する API を `chat_completions` に寄せることを決め、OpenAI 互換 Provider との互換性を優先する
 - [x] workspace から extension host へ prompt / context / 設定済み model を渡すメッセージ契約を定義する
 - [x] 実行対象 model の選択 UI を workspace 側へ追加し、設定未完了時のガイダンスを表示する
 - [x] agent 実行中表示、成功レスポンス表示、失敗表示、再試行導線を UI に実装する
 - [x] ストリーミング表示は初回実装では採用せず、確実に返る非ストリーミング実行に寄せる
-- [ ] workspace 内ファイルを編集する tool / action の責務と許可範囲を定義する
+- [x] workspace 内ファイルを編集する tool / action の責務と許可範囲を定義する
 - [ ] ファイル編集前に対象ファイル、差分方針、失敗時の戻し方を UI に通知する設計を固める
-- [ ] agent が参照する workspace context の最小セットを決める
+- [x] agent が参照する workspace context の最小セットを決める
 - [x] Provider 固有の差分を adapter / factory に閉じ込め、UI と実行ロジックへ分岐を散在させない
 - [ ] CometAPI / OpenRouter の接続確認観点を整理する
 - [ ] 手動確認項目として「設定反映」「応答表示」「エラー表示」「再試行」「ファイル編集」を一通り通す
@@ -58,6 +58,9 @@ alwaysApply: false
 - Provider / Model の選択状態は workspace 実行前に解決し、設定不足時には「どの項目が足りないか」を UI で具体的に返す。`SYW-UX-001` の実行中表示、失敗理由、再試行導線を満たすこと
 - workspace の初回実装では OpenAI Node SDK の `chat.completions` を使い、OpenAI 互換 Provider との接続安定性を優先した。`responses` / Agents JS の切り替えは次段階の拡張ポイントとして残す
 - workspace UI は Model 選択を唯一の設定入口にし、選択中 Model の `providerId` から provider を逆引きして実行設定を解決する
+- workspace agent は実行前に workspace root / active file / selection の最小コンテキストを収集し、prompt に安全な形で付加する
+- file edit 系は workspace root の外側を書き換えない path validation を必須とし、実書き込みは専用 helper に閉じ込める
+- `/application/src` は `core` `host` `ui` の3層に整理し、host 実装は `src/host` に置く
 - ファイル編集機能は agent に無制限権限を与えず、workspace 配下のみを対象にし、編集実行前後でユーザーが状況を追える UI を用意する方針を優先する
 - Provider 固有ヘッダーが必要な場合に備え、workspace 実行層は `baseUrl` `apiKey` に加えて追加 headers を扱える構造で持つ
 - UI は project rule に従い、背景色を使わず、テーマ色準拠、横幅最大活用、横スクロール非表示を守る
