@@ -49,7 +49,7 @@ export function buildSystemPrompt({
 		'Answer in Japanese unless the user asks for another language.',
 		'Be concise, practical, and explicit about assumptions.',
 		'When you need to use tools (file edits and/or file reads), return a single JSON object inside a fenced ```json block.',
-		'The JSON must include assistantMessage (string). Include fileEdits and/or fileReads arrays only when those tools apply.',
+		'The JSON must include assistantMessage (string). Follow each enabled tool section below for keys such as fileEdits and fileReads in the model output.',
 	];
 
 	const toolInstructions = tools.flatMap((tool) => {

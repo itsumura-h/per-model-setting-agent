@@ -7,10 +7,12 @@ export type AgentFileRead = {
 	relativePath: string;
 };
 
+/** ツール ID（例: file-edit-tool の id）→ そのツールの parseResponse 結果の配列 */
+export type AgentToolOutputs = Record<string, unknown[]>;
+
 export type AgentResult = {
 	assistantMessage: string;
-	fileEdits: AgentFileEdit[];
-	fileReads?: AgentFileRead[];
+	toolOutputs: AgentToolOutputs;
 	rawResponse: string;
 };
 
@@ -33,8 +35,7 @@ export type AgentStreamEvent =
 	| {
 			type: 'complete';
 			text: string;
-			fileEdits: AgentFileEdit[];
-			fileReads?: AgentFileRead[];
+			toolOutputs: AgentToolOutputs;
 			rawResponse: string;
 			requestId?: string;
 			timestamp: string;

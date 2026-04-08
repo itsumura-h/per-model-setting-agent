@@ -1,8 +1,9 @@
-import type { AgentFileEdit, AgentResult } from './types';
+import { getFileEditOutputs, withToolOutput } from './agent-result';
+import type { AgentResult } from './types';
 import { fileEditTool } from './tools';
 
 export function ensureFileEdits(result: AgentResult, prompt: string): AgentResult {
-	if (result.fileEdits.length > 0 || !fileEditTool.matchesRequest(prompt)) {
+	if (getFileEditOutputs(result).length > 0 || !fileEditTool.matchesRequest(prompt)) {
 		return result;
 	}
 
@@ -11,13 +12,10 @@ export function ensureFileEdits(result: AgentResult, prompt: string): AgentResul
 		return result;
 	}
 
-	return {
-		...result,
-		fileEdits: inferredFileEdits,
-	};
+	return withToolOutput(result, fileEditTool.id, inferredFileEdits);
 }
 
-function inferAgentFileEdits(prompt: string): AgentFileEdit[] {
+function inferAgentFileEdits(prompt: string): Array<{ relativePath: string; content: string }> {
 	const normalizedPrompt = prompt.trim();
 	if (!normalizedPrompt) {
 		return [];

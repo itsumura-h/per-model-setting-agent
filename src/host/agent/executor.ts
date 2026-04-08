@@ -24,10 +24,9 @@ function collectRetryDirectivesForMissingOutputs(activeToolIds: string[], primar
 		if (!tool) {
 			continue;
 		}
-		if (id === 'file-edit' && primaryResult.fileEdits.length === 0) {
-			directives.push(...tool.retryDirective);
-		}
-		if (id === 'file-read' && (primaryResult.fileReads?.length ?? 0) === 0) {
+		const outputs = primaryResult.toolOutputs[id];
+		const len = Array.isArray(outputs) ? outputs.length : 0;
+		if (len === 0) {
 			directives.push(...tool.retryDirective);
 		}
 	}

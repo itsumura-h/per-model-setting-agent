@@ -249,8 +249,7 @@ const systemPrompt = buildSystemPrompt({
 ```ts
 export type AgentResult = {
   assistantMessage: string;
-  fileEdits: AgentFileEdit[];       // 後方互換のために残す
-  fileReads?: AgentFileRead[];      // 新規
+  toolOutputs: Record<string, unknown[]>; // ツール ID → parseResponse の配列
   rawResponse: string;
 };
 ```
@@ -273,7 +272,7 @@ export type AgentResult = {
 
 ### 4. 設計上の注意点
 
-- **後方互換**: `AgentResult.fileEdits` は既存のオーケストレーター・UIが参照しているため、フィールドとして残す。file-read 等は専用フィールド（例: `fileReads`）で保持する。
-- **core 層への影響最小化**: `createAgentToolFileEditSafetyNotice` は `core` にあるが、ツール定義に移した後も `core` からは削除せず、ツール定義内で定義した値を正とし `core` 側は互換性のためにラップする。
-- **実行層との分離**: `ToolDefinition` は「AIに何を教えるか」「AIのレスポンスをどう解析するか」のみを扱う。実際のファイルI/O は `agent-tools/`（`file-edit` / 追加の `file-read`）に委ねる。オーケストレーションは `applyAgentToolFileEdits` に加え、`result.fileReads` に基づく `applyAgentToolFileReads` で読み取り結果を応答テキストへ反映する。
+- **AgentResult**: ツール結果は `toolOutputs[toolId]` に集約。オーケストレーションは `agent-result.ts` の `getFileEditOutputs` / `getFileReadOutputs` で参照する。
+- **core 層**: UI 用の `createAgentToolFileEditSafetyNotice` と `agentToolFileEdit` 状態は `core` に残す。ツール定義の `safetyNotice` は同関数を参照する。
+- **実行層との分離**: `ToolDefinition` はプロンプトとレスポンス解析のみ。ファイル I/O は `agent-tools/`。オーケストレーションは `applyAgentToolFileEdits` と `applyAgentToolFileReads` で `toolOutputs` を解釈する。
 - **テスト**: file-edit-tool の `parseResponse` は既存の `normalizeAgentFileEdits` のテストケースをそのまま流用できる。prompt 生成のスナップショットテストを追加して、ツール追加時にプロンプトが正しく変化することを検証する。

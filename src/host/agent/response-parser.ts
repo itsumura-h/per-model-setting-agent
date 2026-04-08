@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 
-import type { AgentFileEdit, AgentFileRead, AgentResult } from './types';
+import type { AgentResult, AgentToolOutputs } from './types';
 import type { ToolDefinition } from './tools/types';
 
 export function parseAgentResult(rawResponse: string, tools: readonly ToolDefinition[]): AgentResult {
@@ -23,7 +23,7 @@ export function parseAgentResult(rawResponse: string, tools: readonly ToolDefini
 
 	return {
 		assistantMessage: trimmed,
-		fileEdits: [],
+		toolOutputs: {},
 		rawResponse,
 	};
 }
@@ -47,20 +47,14 @@ function tryParseAgentJson(
 					? record.message
 					: '';
 
-		let fileEdits: AgentFileEdit[] = [];
-		let fileReads: AgentFileRead[] = [];
+		const toolOutputs: AgentToolOutputs = {};
 		let hasToolPayload = false;
 
 		for (const tool of tools) {
 			const results = tool.parseResponse(record);
 			if (results.length > 0) {
+				toolOutputs[tool.id] = results;
 				hasToolPayload = true;
-			}
-			if (tool.id === 'file-edit') {
-				fileEdits = results as AgentFileEdit[];
-			}
-			if (tool.id === 'file-read') {
-				fileReads = results as AgentFileRead[];
 			}
 		}
 
@@ -73,8 +67,7 @@ function tryParseAgentJson(
 
 		return {
 			assistantMessage: resolvedAssistant,
-			fileEdits,
-			fileReads: fileReads.length > 0 ? fileReads : undefined,
+			toolOutputs,
 		};
 	} catch {
 		return undefined;

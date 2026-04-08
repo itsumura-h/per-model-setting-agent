@@ -206,8 +206,7 @@ async function finalizeAgentStream({
 	const completeEvent: Extract<AgentStreamEvent, { type: 'complete' }> = {
 		type: 'complete',
 		text: parsedResult.assistantMessage,
-		fileEdits: parsedResult.fileEdits,
-		fileReads: parsedResult.fileReads,
+		toolOutputs: parsedResult.toolOutputs,
 		rawResponse: parsedResult.rawResponse,
 		requestId,
 		timestamp: new Date().toISOString(),

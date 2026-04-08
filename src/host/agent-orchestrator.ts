@@ -13,6 +13,7 @@ import {
 	type WorkspaceExecutionState,
 } from '../core/index';
 import { executeWorkspacePromptStream, formatAgentError, type AgentResult } from './workspace-agent';
+import { getFileEditOutputs, getFileReadOutputs } from './agent/agent-result';
 import { collectWorkspaceContext } from './workspace-context';
 import { agentToolFileEditWrite, agentToolFileRead } from './agent-tools';
 
@@ -168,13 +169,14 @@ async function applyAgentToolFileReads(
 	result: AgentResult,
 ): Promise<Array<{ relativePath: string; content: string }>> {
 	const workspaceContext = collectWorkspaceContext();
-	if (!workspaceContext.workspacePath.trim() || !result.fileReads?.length) {
+	const fileReads = getFileReadOutputs(result);
+	if (!workspaceContext.workspacePath.trim() || fileReads.length === 0) {
 		return [];
 	}
 
 	const blocks: Array<{ relativePath: string; content: string }> = [];
 
-	for (const fileRead of result.fileReads) {
+	for (const fileRead of fileReads) {
 		const normalizedRelativePath = fileRead.relativePath.trim();
 		try {
 			const read = await agentToolFileRead({
@@ -196,14 +198,15 @@ async function applyAgentToolFileReads(
 
 async function applyAgentToolFileEdits(access: OrchestrationAccess, result: AgentResult) {
 	const workspaceContext = collectWorkspaceContext();
-	if (!workspaceContext.workspacePath.trim() || result.fileEdits.length === 0) {
+	const fileEdits = getFileEditOutputs(result);
+	if (!workspaceContext.workspacePath.trim() || fileEdits.length === 0) {
 		return [];
 	}
 
 	const { getState, setState, broadcastMessage } = access;
 	const appliedEdits: Array<{ relativePath: string; absolutePath: string }> = [];
 
-	for (const fileEdit of result.fileEdits) {
+	for (const fileEdit of fileEdits) {
 		const normalizedRelativePath = fileEdit.relativePath.trim();
 		const savingState = createSavingAgentToolFileEditState({
 			workspaceRoot: workspaceContext.workspacePath,
