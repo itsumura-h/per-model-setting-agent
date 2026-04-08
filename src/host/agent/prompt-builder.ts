@@ -40,7 +40,7 @@ export function buildSystemPrompt({
 	extraInstructions,
 }: {
 	contextPrompt: string;
-	tools: ToolDefinition[];
+	tools: readonly ToolDefinition[];
 	activeToolIds: string[];
 	extraInstructions: string[];
 }) {

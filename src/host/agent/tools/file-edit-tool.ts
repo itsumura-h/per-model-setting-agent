@@ -31,7 +31,6 @@ function normalizeAgentFileEdits(value: unknown): AgentFileEdit[] {
 
 export const fileEditTool: ToolDefinition = {
 	id: 'file-edit',
-	name: 'File edit',
 	promptInstructions: [
 		'If you need to edit files, only propose safe workspace-local edits and never touch paths outside the workspace root.',
 		'If the user asks to create or edit files, do not ask for confirmation first.',

@@ -15,8 +15,7 @@ import {
 	shouldFallbackToChatCompletions,
 } from './stream';
 import { agentTools, getActiveToolIds } from './tools';
-import type { AgentResult } from './types';
-import type { AgentStreamObserver } from './types';
+import type { AgentResult, AgentStreamObserver } from './types';
 
 function collectRetryDirectivesForMissingOutputs(activeToolIds: string[], primaryResult: AgentResult): string[] {
 	const directives: string[] = [];
@@ -63,10 +62,9 @@ export async function executeWorkspacePromptStream(
 		prompt,
 	});
 	const activeToolIds = getActiveToolIds(prompt);
-	const toolsList = [...agentTools];
 	const systemPrompt = buildSystemPrompt({
 		contextPrompt,
-		tools: toolsList,
+		tools: agentTools,
 		activeToolIds,
 		extraInstructions: [],
 	});
@@ -99,7 +97,7 @@ export async function executeWorkspacePromptStream(
 		if (retryDirectives.length > 0) {
 			const retrySystemPrompt = buildSystemPrompt({
 				contextPrompt,
-				tools: toolsList,
+				tools: agentTools,
 				activeToolIds,
 				extraInstructions: retryDirectives,
 			});

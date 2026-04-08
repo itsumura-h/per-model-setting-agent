@@ -11,7 +11,6 @@ export type AgentResult = {
 	assistantMessage: string;
 	fileEdits: AgentFileEdit[];
 	fileReads?: AgentFileRead[];
-	toolResults?: Record<string, unknown[]>;
 	rawResponse: string;
 };
 

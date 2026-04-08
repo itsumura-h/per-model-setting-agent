@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import type { AgentFileEdit, AgentFileRead, AgentResult } from './types';
 import type { ToolDefinition } from './tools/types';
 
-export function parseAgentResult(rawResponse: string, tools: ToolDefinition[]): AgentResult {
+export function parseAgentResult(rawResponse: string, tools: readonly ToolDefinition[]): AgentResult {
 	const trimmed = rawResponse.trim();
 	const jsonCandidates = [
 		...extractFencedCodeBlocks(trimmed, 'json'),
@@ -30,7 +30,7 @@ export function parseAgentResult(rawResponse: string, tools: ToolDefinition[]): 
 
 function tryParseAgentJson(
 	candidate: string,
-	tools: ToolDefinition[],
+	tools: readonly ToolDefinition[],
 	fallbackAssistantText: string,
 ): Omit<AgentResult, 'rawResponse'> | undefined {
 	try {
@@ -47,13 +47,15 @@ function tryParseAgentJson(
 					? record.message
 					: '';
 
-		const toolResults: Record<string, unknown[]> = {};
 		let fileEdits: AgentFileEdit[] = [];
 		let fileReads: AgentFileRead[] = [];
+		let hasToolPayload = false;
 
 		for (const tool of tools) {
 			const results = tool.parseResponse(record);
-			toolResults[tool.id] = results;
+			if (results.length > 0) {
+				hasToolPayload = true;
+			}
 			if (tool.id === 'file-edit') {
 				fileEdits = results as AgentFileEdit[];
 			}
@@ -61,9 +63,6 @@ function tryParseAgentJson(
 				fileReads = results as AgentFileRead[];
 			}
 		}
-
-		const hasToolPayload =
-			Object.values(toolResults).some((entries) => Array.isArray(entries) && entries.length > 0);
 
 		if (assistantMessage.trim().length === 0 && !hasToolPayload) {
 			return undefined;
@@ -76,7 +75,6 @@ function tryParseAgentJson(
 			assistantMessage: resolvedAssistant,
 			fileEdits,
 			fileReads: fileReads.length > 0 ? fileReads : undefined,
-			toolResults,
 		};
 	} catch {
 		return undefined;

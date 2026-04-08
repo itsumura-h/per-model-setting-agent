@@ -28,7 +28,6 @@ function normalizeAgentFileReads(value: unknown): AgentFileRead[] {
 
 export const fileReadTool: ToolDefinition = {
 	id: 'file-read',
-	name: 'File read',
 	promptInstructions: [
 		'When the user asks to read or show file contents, include a fileReads array in the JSON.',
 		'fileReads must be an array of objects shaped like { "relativePath": string } listing workspace-relative paths.',

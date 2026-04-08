@@ -78,9 +78,6 @@ type ToolDefinition<TResult = unknown> = {
   /** ツールの一意識別子（例: "file-edit", "file-read"） */
   id: string;
 
-  /** ツールの表示名 */
-  name: string;
-
   /** AI に渡すシステムプロンプト断片（ツールの使い方の説明） */
   promptInstructions: string[];
 
@@ -151,8 +148,7 @@ import { fileReadTool } from './file-read-tool';
 
 export const agentTools = [fileEditTool, fileReadTool] as const;
 
-export { fileEditTool, fileReadTool };
-export type { ToolDefinition } from './types';
+export { fileEditTool };
 ```
 
 ##### `src/host/agent/prompt-builder.ts`（変更）
@@ -216,11 +212,7 @@ export function parseAgentResult(
   tools: ToolDefinition[],
 ): AgentResult {
   // ... JSON 抽出ロジック（既存）
-  // 各ツールの parseResponse を呼び出す
-  for (const tool of tools) {
-    const toolResults = tool.parseResponse(parsed);
-    // AgentResult に格納
-  }
+  // 各ツールの parseResponse を呼び出し、ツール ID に応じて AgentResult の fileEdits / fileReads 等へ格納する
 }
 ```
 
@@ -259,7 +251,6 @@ export type AgentResult = {
   assistantMessage: string;
   fileEdits: AgentFileEdit[];       // 後方互換のために残す
   fileReads?: AgentFileRead[];      // 新規
-  toolResults?: Record<string, unknown[]>;  // 汎用
   rawResponse: string;
 };
 ```
@@ -282,7 +273,7 @@ export type AgentResult = {
 
 ### 4. 設計上の注意点
 
-- **後方互換**: `AgentResult.fileEdits` は既存のオーケストレーター・UIが参照しているため、フィールドとして残す。新しいツール結果は `toolResults` に格納しつつ、file-edit は `fileEdits` にもコピーする。
+- **後方互換**: `AgentResult.fileEdits` は既存のオーケストレーター・UIが参照しているため、フィールドとして残す。file-read 等は専用フィールド（例: `fileReads`）で保持する。
 - **core 層への影響最小化**: `createAgentToolFileEditSafetyNotice` は `core` にあるが、ツール定義に移した後も `core` からは削除せず、ツール定義内で定義した値を正とし `core` 側は互換性のためにラップする。
 - **実行層との分離**: `ToolDefinition` は「AIに何を教えるか」「AIのレスポンスをどう解析するか」のみを扱う。実際のファイルI/O は `agent-tools/`（`file-edit` / 追加の `file-read`）に委ねる。オーケストレーションは `applyAgentToolFileEdits` に加え、`result.fileReads` に基づく `applyAgentToolFileReads` で読み取り結果を応答テキストへ反映する。
 - **テスト**: file-edit-tool の `parseResponse` は既存の `normalizeAgentFileEdits` のテストケースをそのまま流用できる。prompt 生成のスナップショットテストを追加して、ツール追加時にプロンプトが正しく変化することを検証する。

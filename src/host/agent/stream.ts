@@ -190,7 +190,7 @@ export async function requestAgentCompletion({
 		],
 	});
 
-	return parseAgentResult(extractChatCompletionText(completion), [...agentTools]);
+	return parseAgentResult(extractChatCompletionText(completion), agentTools);
 }
 
 async function finalizeAgentStream({
@@ -202,7 +202,7 @@ async function finalizeAgentStream({
 	requestId: string;
 	observer?: AgentStreamObserver;
 }): Promise<AgentResult> {
-	const parsedResult = parseAgentResult(text, [...agentTools]);
+	const parsedResult = parseAgentResult(text, agentTools);
 	const completeEvent: Extract<AgentStreamEvent, { type: 'complete' }> = {
 		type: 'complete',
 		text: parsedResult.assistantMessage,

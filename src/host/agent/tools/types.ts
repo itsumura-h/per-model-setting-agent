@@ -2,9 +2,6 @@ export type ToolDefinition = {
 	/** ツールの一意識別子（例: "file-edit", "file-read"） */
 	id: string;
 
-	/** ツールの表示名 */
-	name: string;
-
 	/** AI に渡すシステムプロンプト断片（ツールの使い方の説明） */
 	promptInstructions: string[];
 
