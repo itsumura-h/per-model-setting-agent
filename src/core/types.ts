@@ -4,7 +4,6 @@ export type ProviderPreset = {
 	id: Exclude<ProviderPresetId, 'custom'>;
 	name: string;
 	baseUrl: string;
-	description: string;
 	defaultModelId: string;
 	defaultHeaders: Record<string, string>;
 };
@@ -16,7 +15,6 @@ export type ProviderConfig = {
 	baseUrl: string;
 	apiKey?: string;
 	enabled: boolean;
-	description: string;
 	headers: Record<string, string>;
 };
 
@@ -26,7 +24,6 @@ export type ModelConfig = {
 	name: string;
 	modelId: string;
 	enabled: boolean;
-	description: string;
 };
 
 export type SettingsConfig = {

@@ -271,7 +271,6 @@ export function useSettingsCrud({
 				presetId: nextDraft.presetId,
 				name: nextDraft.name,
 				baseUrl: nextDraft.baseUrl,
-				description: nextDraft.description,
 				headers: { ...nextDraft.headers },
 			},
 			headersText: formatHeadersText(nextDraft.headers),
@@ -298,7 +297,6 @@ export function useSettingsCrud({
 				providerId: nextProviderId,
 				name: editor.mode === 'create' ? presetModel?.name ?? editor.draft.name : editor.draft.name,
 				modelId: editor.mode === 'create' ? presetModel?.modelId ?? editor.draft.modelId : editor.draft.modelId,
-				description: editor.mode === 'create' ? presetModel?.description ?? editor.draft.description : editor.draft.description,
 			},
 			errorMessage: undefined,
 		});

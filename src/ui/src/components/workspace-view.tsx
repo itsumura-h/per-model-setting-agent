@@ -77,6 +77,18 @@ export function WorkspaceView({
 
 			<section class="grid min-w-0 gap-2 rounded-2xl">
 				<div class="flex min-h-[22rem] w-full min-w-0 flex-col gap-1.5 overflow-y-auto pr-1">
+					{workspaceExecution.status === 'error' &&
+					workspaceExecution.errorMessage?.trim() &&
+					!workspaceExecution.messages.some(
+						(m) =>
+							(m.role === 'error' || m.status === 'error') && m.content.trim().length > 0,
+					) ? (
+						<article class="grid w-full min-w-0 gap-0.5 border-0 px-0 py-1.5">
+							<p class="m-0 whitespace-pre-wrap break-words text-sm leading-snug text-[color:var(--vscode-errorForeground)]">
+								{workspaceExecution.errorMessage.trim()}
+							</p>
+						</article>
+					) : null}
 					{workspaceExecution.messages.map((message) => renderWorkspaceMessage(message))}
 				</div>
 			</section>
@@ -156,14 +168,23 @@ export function WorkspaceView({
 function renderWorkspaceMessage(message: WorkspaceExecutionState['messages'][number]) {
 	const isUser = message.role === 'user';
 	const isAssistant = message.role === 'assistant';
-	const isError = message.role === 'error';
+	const isError = message.role === 'error' || message.status === 'error';
 	const isStreaming = message.status === 'streaming';
-	const content = message.content.trim().length > 0 ? message.content : isStreaming ? '応答を生成しています。' : '';
+	const content =
+		message.content.trim().length > 0
+			? message.content
+			: isStreaming
+				? '応答を生成しています。'
+				: isError
+					? 'エラーが発生しました。'
+					: '';
 
 	const articleClass =
 		isUser
 			? 'grid min-w-0 max-w-[92%] self-end gap-0.5 rounded-2xl border border-[color:var(--vscode-focusBorder)] px-3 py-2'
-			: 'grid w-full min-w-0 gap-0.5 border-0 px-0 py-1.5';
+			: isError
+				? 'grid w-full min-w-0 gap-0.5 rounded-2xl border border-[color:var(--vscode-errorForeground)] px-3 py-2'
+				: 'grid w-full min-w-0 gap-0.5 border-0 px-0 py-1.5';
 
 	return (
 		<article key={message.id} class={articleClass}>

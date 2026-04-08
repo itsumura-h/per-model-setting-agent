@@ -38,7 +38,6 @@ export function createProviderDraft(presetId: ProviderPresetId | 'custom' = 'com
 			baseUrl: '',
 			apiKey: '',
 			enabled: true,
-			description: '',
 			headers: {},
 		};
 	}
@@ -52,7 +51,6 @@ export function createProviderDraft(presetId: ProviderPresetId | 'custom' = 'com
 		baseUrl: preset.baseUrl,
 		apiKey: '',
 		enabled: true,
-		description: preset.description,
 		headers: { ...preset.defaultHeaders },
 	};
 }
@@ -70,7 +68,6 @@ export function createModelDraft(providerId: string, providers: ProviderConfig[]
 		name: preset?.name ?? '新しいモデル',
 		modelId: preset?.modelId ?? '',
 		enabled: true,
-		description: preset?.description ?? '',
 	};
 }
 

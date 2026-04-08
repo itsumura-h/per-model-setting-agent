@@ -86,15 +86,6 @@ export function ModelSettingsPage({
 															/>
 														</label>
 													</div>
-													<label class="grid min-w-0 gap-2">
-														<span>Description</span>
-														<textarea
-															class={fieldClass}
-															rows={3}
-															value={editor.draft.description}
-															onInput={(event) => onUpdateModelDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })}
-														/>
-													</label>
 													<label class="inline-flex items-center gap-2.5">
 														<input
 															type="checkbox"
@@ -160,7 +151,6 @@ export function ModelSettingsPage({
 												<span>{settings.providers.find((provider) => provider.id === model.providerId)?.name ?? 'Provider 未設定'}</span>
 												<span>{model.enabled ? 'enabled' : 'disabled'}</span>
 											</div>
-											{model.description ? <p class="m-0 break-words">{model.description}</p> : null}
 										</>
 									)}
 								</article>
@@ -219,15 +209,6 @@ export function ModelSettingsPage({
 											/>
 										</label>
 									</div>
-									<label class="grid min-w-0 gap-2">
-										<span>Description</span>
-										<textarea
-											class={fieldClass}
-											rows={3}
-											value={editor.draft.description}
-											onInput={(event) => onUpdateModelDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })}
-										/>
-									</label>
 									<label class="inline-flex items-center gap-2.5">
 										<input
 											type="checkbox"
