@@ -43,7 +43,6 @@ export function ModelSettingsPage({
 											<div class="flex flex-wrap items-start justify-between gap-3">
 												<div>
 													<h3>{model.name}</h3>
-													<p class="m-0">この Model を一覧内で編集しています。</p>
 												</div>
 												<span class="inline-flex items-center rounded-full border border-[color:var(--vscode-focusBorder)] px-3 py-1 text-xs font-bold uppercase tracking-[0.1em]">
 													編集中

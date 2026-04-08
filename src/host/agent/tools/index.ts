@@ -1,7 +1,10 @@
 import { fileEditTool } from './file-edit-tool';
 import { fileReadTool } from './file-read-tool';
+import { listFilesTool } from './list-files-tool';
+import { shellExecTool } from './shell-exec-tool';
 
-export const agentTools = [fileEditTool, fileReadTool] as const;
+/** 推奨フロー: listFiles → shellExec → fileReads → fileEdits に近い説明順 */
+export const agentTools = [listFilesTool, shellExecTool, fileReadTool, fileEditTool] as const;
 
 export { fileEditTool };
 

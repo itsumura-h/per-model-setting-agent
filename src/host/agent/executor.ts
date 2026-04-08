@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { getWorkspaceExecutionContext } from '../../core/index';
 import type { SettingsConfig, WorkspaceConversationMessage } from '../../core/index';
+import { appendPermosaAgentDebugLog } from '../permosa-debug-log';
 import { collectWorkspaceContext, formatWorkspaceContextForPrompt } from '../workspace-context';
 import { createOpenAIClient, initializeOpenAIAgentsRuntime } from './client';
 import { formatAgentError } from './error';
@@ -15,7 +16,18 @@ import {
 	shouldFallbackToChatCompletions,
 } from './stream';
 import { agentTools, getActiveToolIds } from './tools';
-import type { AgentResult, AgentStreamObserver } from './types';
+import type { AgentResult, AgentStreamObserver, AgentToolOutputs } from './types';
+
+/** リトライ応答で空のツール出力は 1 回目の結果を引き継ぐ（listFiles のあと fileReads だけ返すケース向け） */
+function mergeToolOutputsOnRetry(primary: AgentToolOutputs, retry: AgentToolOutputs): AgentToolOutputs {
+	const merged: AgentToolOutputs = { ...primary };
+	for (const [toolId, items] of Object.entries(retry)) {
+		if (Array.isArray(items) && items.length > 0) {
+			merged[toolId] = items;
+		}
+	}
+	return merged;
+}
 
 function collectRetryDirectivesForMissingOutputs(activeToolIds: string[], primaryResult: AgentResult): string[] {
 	const directives: string[] = [];
@@ -43,10 +55,18 @@ export async function executeWorkspacePromptStream(
 	options?: {
 		conversation?: WorkspaceConversationMessage[];
 		observer?: AgentStreamObserver;
+		/** どのツールを有効にするか・ensureFileEdits の判定に使う。未指定時は `prompt`。ツールループの2ターン目以降は元のユーザー文を渡すこと。 */
+		toolActivationPrompt?: string;
 	},
 ) {
 	const observer = options?.observer;
+	const intentPrompt = (options?.toolActivationPrompt ?? prompt).trim();
 	const { provider, model, configurationIssues, isReady } = getWorkspaceExecutionContext(settings);
+	const debugMeta = {
+		providerName: provider?.name,
+		modelName: model?.name,
+		modelId: model?.modelId,
+	};
 	if (!isReady || !provider || !model) {
 		throw new Error(configurationIssues.join('\n') || 'Provider / Model の設定が不足しています。');
 	}
@@ -60,7 +80,7 @@ export async function executeWorkspacePromptStream(
 		conversation: options?.conversation ?? [],
 		prompt,
 	});
-	const activeToolIds = getActiveToolIds(prompt);
+	const activeToolIds = getActiveToolIds(intentPrompt);
 	const systemPrompt = buildSystemPrompt({
 		contextPrompt,
 		tools: agentTools,
@@ -80,17 +100,23 @@ export async function executeWorkspacePromptStream(
 	});
 
 	try {
-		const primaryResult = ensureFileEdits(
-			await requestAgentResponsesStream({
-				client,
-				modelId: model.modelId,
-				prompt: conversationPrompt,
-				systemPrompt,
-				requestId,
-				observer,
-			}),
-			prompt,
-		);
+		const streamRaw = await requestAgentResponsesStream({
+			client,
+			modelId: model.modelId,
+			prompt: conversationPrompt,
+			systemPrompt,
+			requestId,
+			observer,
+		});
+		const primaryResult = ensureFileEdits(streamRaw, intentPrompt);
+		await appendPermosaAgentDebugLog({
+			phase: 'responses-api-stream',
+			requestId,
+			...debugMeta,
+			systemPrompt,
+			userPrompt: conversationPrompt,
+			result: primaryResult,
+		});
 
 		const retryDirectives = collectRetryDirectivesForMissingOutputs(activeToolIds, primaryResult);
 		if (retryDirectives.length > 0) {
@@ -101,15 +127,27 @@ export async function executeWorkspacePromptStream(
 				extraInstructions: retryDirectives,
 			});
 
-			return ensureFileEdits(
-				await requestAgentCompletion({
-					client,
-					modelId: model.modelId,
-					prompt: conversationPrompt,
-					systemPrompt: retrySystemPrompt,
-				}),
-				prompt,
-			);
+			const retryRaw = await requestAgentCompletion({
+				client,
+				modelId: model.modelId,
+				prompt: conversationPrompt,
+				systemPrompt: retrySystemPrompt,
+			});
+			const retryResult = ensureFileEdits(retryRaw, intentPrompt);
+			const mergedResult: AgentResult = {
+				...retryResult,
+				toolOutputs: mergeToolOutputsOnRetry(primaryResult.toolOutputs, retryResult.toolOutputs),
+			};
+			await appendPermosaAgentDebugLog({
+				phase: 'chat-completions-retry',
+				requestId,
+				...debugMeta,
+				systemPrompt: retrySystemPrompt,
+				userPrompt: conversationPrompt,
+				result: mergedResult,
+			});
+
+			return mergedResult;
 		}
 
 		return primaryResult;
@@ -127,17 +165,25 @@ export async function executeWorkspacePromptStream(
 		}
 
 		try {
-			return ensureFileEdits(
-				await requestAgentChatCompletionStream({
-					client,
-					modelId: model.modelId,
-					prompt: conversationPrompt,
-					systemPrompt,
-					requestId,
-					observer,
-				}),
-				prompt,
-			);
+			const fallbackRaw = await requestAgentChatCompletionStream({
+				client,
+				modelId: model.modelId,
+				prompt: conversationPrompt,
+				systemPrompt,
+				requestId,
+				observer,
+			});
+			const fallbackResult = ensureFileEdits(fallbackRaw, intentPrompt);
+			await appendPermosaAgentDebugLog({
+				phase: 'chat-completions-fallback',
+				requestId,
+				...debugMeta,
+				systemPrompt,
+				userPrompt: conversationPrompt,
+				result: fallbackResult,
+			});
+
+			return fallbackResult;
 		} catch (chatError) {
 			await emitStreamEvent(observer, {
 				type: 'error',

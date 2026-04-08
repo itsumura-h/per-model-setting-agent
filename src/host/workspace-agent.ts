@@ -1,7 +1,9 @@
 export type {
 	AgentFileEdit,
 	AgentFileRead,
+	AgentListFiles,
 	AgentResult,
+	AgentShellExec,
 	AgentToolOutputs,
 	AgentStreamEvent,
 	AgentStreamObserver,

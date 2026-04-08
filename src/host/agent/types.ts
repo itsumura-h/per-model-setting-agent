@@ -4,7 +4,18 @@ export type AgentFileEdit = {
 };
 
 export type AgentFileRead = {
-	relativePath: string;
+	/** workspace 相対パスまたは workspace 内の絶対パス */
+	filePath: string;
+};
+
+export type AgentListFiles = {
+	pattern?: string;
+	maxDepth?: number;
+};
+
+export type AgentShellExec = {
+	command: string;
+	cwd?: string;
 };
 
 /** ツール ID（例: file-edit-tool の id）→ そのツールの parseResponse 結果の配列 */

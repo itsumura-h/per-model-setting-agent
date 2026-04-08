@@ -2,277 +2,664 @@
 description: 9-file-read-toolsブランチでの開発時に読み込む
 alwaysApply: false
 ---
-9-file-read-tools: ツール定義の一元化リファクタリング
+9-file-read-tools
 ===
 
 このブランチで実装することは以下の通りです。
-- AIエージェントが使うツール（file-edit 等）の定義を「ツール単位」に一元化する
-- プロンプト組み立て（prompt-builder）とレスポンス解析（response-parser）の両方から、共通のツール定義モジュールを参照するようにリファクタリングする
-- 将来のツール追加（file-read, terminal-exec, search 等）を容易にする拡張可能な構造にする
+- ファイル読み取りツール (`file-read`) の改善：絶対パスでもファイルを読めるようにする。workspace配下のファイル一覧を取得し、AIが読むべきファイルパスを自力で発見できるようにする
+- ファイル一覧ツール (`list-files`) の新規追加：workspaceルートから再帰的にファイルツリーを取得するツール
+- シェル実行ツール (`shell-exec`) の新規追加：ターミナルでコマンドを実行し結果を取得するツール
 
 ## 進捗
-- [x] 現状調査・コード精査
-- [x] 設計書作成
-- [x] `src/host/agent/tools/` ディレクトリ新設、ToolDefinition 型・共通インターフェース定義
-- [x] file-edit ツール定義モジュール作成（`src/host/agent/tools/file-edit-tool.ts`）
-- [x] file-read ツール定義モジュール作成（`src/host/agent/tools/file-read-tool.ts`）
-- [x] prompt-builder を ToolDefinition 配列から動的にシステムプロンプトを組み立てるよう変更
-- [x] response-parser を ToolDefinition のスキーマに従って解析するよう変更
-- [x] executor.ts のツール判定ロジックを ToolDefinition ベースに移行
-- [ ] 既存テストの修正・追加（リポジトリに拡張ホスト向け単体テスト基盤なし。必要なら vitest 等の導入を別タスクとする）
-- [x] 動作確認（`pnpm run _build:extension` でビルド成功）
+- [x] 既存コードの調査・設計書作成
+- [x] `list-files` ツール定義の実装 (`src/host/agent/tools/list-files-tool.ts`)
+- [x] `list-files` ツール実行の実装 (`src/host/agent-tools/list-files.ts`)
+- [x] `shell-exec` ツール定義の実装 (`src/host/agent/tools/shell-exec-tool.ts`)
+- [x] `shell-exec` ツール実行の実装 (`src/host/agent-tools/shell-exec.ts`)
+- [x] ツール登録（`src/host/agent/tools/index.ts`、`src/host/agent-tools/index.ts`）
+- [x] `agent-orchestrator.ts` にツール実行フローを追加
+- [x] `core/types.ts` / `core/messages.ts` に必要な型・メッセージを追加（既存の `toolOutputs: Record<string, unknown[]>` で足りるため変更なし）
+- [x] `agent/types.ts` に `AgentListFiles` / `AgentShellExec` 型を追加
+- [x] `agent/agent-result.ts` にヘルパー関数を追加
+- [x] `file-read` の絶対パス対応（`file-read.ts` のパス解決ロジック改修、型変更、ツール定義のプロンプト改善）
+- [x] プロンプト改善（ファイル一覧を使ってから読む、というフローをAIに指示）
+- [x] 安全制御（シェル実行のコマンド制限、タイムアウト、workspace外アクセス防止）
+- [x] マルチターン・ツールループの設計書作成（セクション6）
+- [x] `agent-orchestrator.ts` にツールループ導入（`runWorkspaceAgent` の改修）
+- [x] ツールフィードバック用プロンプト構築関数の実装（`prompt-builder.ts` の `buildToolFeedbackPrompt`）
+- [x] 継続判定ロジックの実装（`hasAnyToolOutputs` + 中間ツールのみのとき継続、`MAX_TOOL_TURNS = 5`）
+- [x] ターン間の進捗表示（UIステータスメッセージ更新）
+- [x] response-parser.ts: モデルが複数JSONブロックを返した場合に全ブロックの toolOutputs をマージするよう修正
+- [ ] 結合テスト（listFiles → fileReads の2ターンフローが通ること）
 
 ## 参考資料
-- `src/host/agent/prompt-builder.ts` — 現在のプロンプト組み立て
-- `src/host/agent/response-parser.ts` — 現在のレスポンス解析
-- `src/host/agent/executor.ts` — ツール使用判定・実行フロー
-- `src/host/agent/file-edit-inference.ts` — file-edit の推論補完ロジック
-- `src/host/agent/types.ts` — AgentResult, AgentFileEdit 等の型
-- `src/host/agent-tools/file-edit.ts` — 実際のファイル書き込み処理
-- `src/host/agent-orchestrator.ts` — ツール実行のオーケストレーション
-- `src/core/agent-tool-file-edit-state.ts` — file-edit の安全注意事項・状態管理
+- 既存 `file-read-tool.ts` / `file-edit-tool.ts` の `ToolDefinition` パターン
+- 既存 `agent-orchestrator.ts` のツール実行フロー (`applyAgentToolFileReads` / `applyAgentToolFileEdits`)
+- `src/host/agent/tools/types.ts` の `ToolDefinition` 型
+- プロジェクトルール `SYW-UI-*`, `SYW-SEC-001`（安全性）, `SYW-EXT-001`（拡張性）
 
 ## 調査結果・設計まとめ
 
 ### 1. 現状の問題点
 
-現在、AIエージェントにツールを使わせるための知識（プロンプトテンプレート、レスポンスフォーマット、解析ロジック）が以下のファイルに分散している。
+#### 1.1 ファイル読み取りの限界
+現在の `file-read` ツールは、AIが **事前にファイルパスを知っている前提** で動作する。
 
-| 関心事 | 現在の場所 | 問題 |
-|---|---|---|
-| ツールの使い方をAIに教える指示文 | `prompt-builder.ts` の `buildSystemPrompt` にハードコード | ツールが増えるたびに `buildSystemPrompt` の引数と本文が肥大化する |
-| ツールのレスポンスフォーマット | `prompt-builder.ts` に ````json` ブロックの形式指示として埋め込み | レスポンス解析側と二重管理になる |
-| レスポンスの解析 | `response-parser.ts` の `parseAgentResult` に JSON 解析ロジックとして実装 | file-edit 固有の `fileEdits` キーがハードコードされている |
-| ツール使用の判定 | `prompt-builder.ts` の `isFileEditRequest` + `executor.ts` の `fileEditDirective` 条件分岐 | ツールごとに executor に分岐が増える |
-| ツール実行結果の安全注意事項 | `core/agent-tool-file-edit-state.ts` の `createAgentToolFileEditSafetyNotice` | prompt-builder から `core` に依存している |
-| ツールの実行 | `agent-tools/file-edit.ts` + `agent-orchestrator.ts` の `applyAgentToolFileEdits` | 実行ロジックは分離されているが、ツール定義との紐付けがない |
+```
+AI応答 → fileReads: [{ filePath: "src/foo.ts" }] → fs.readFile
+```
 
-#### 具体的な分散パターン
+AIはworkspace内のファイル構造を知る手段がないため、以下の問題がある：
+- ユーザーが「このプロジェクトの構造を教えて」と言ってもファイル一覧を返せない
+- 「○○に関するファイルを読んで」と言われても、パスを推測するしかない
+- 存在しないパスを指定してエラーになるケースが多い
 
-**prompt-builder.ts** で file-edit ツールに関する以下の知識がハードコードされている：
-- 「JSON object inside a fenced ```json block with keys assistantMessage and fileEdits」というフォーマット指示
-- 「fileEdits must be an array of objects shaped like { "relativePath": string, "content": string }」というスキーマ指示
-- `isFileEditRequest` によるツール使用判定
-- `createAgentToolFileEditSafetyNotice` から取得する安全注意事項
+#### 1.3 絶対パスでファイルが読めない（改善前の課題）
+改善前は `relativePath` のみを想定しており、`normalizeRelativePath` が先頭の `/` を強制的に剥がすため、絶対パスを渡すと意図しないパスに解決される問題があった：
 
-**response-parser.ts** で file-edit ツールに関する以下の知識がハードコードされている：
-- `fileEdits` キーの存在チェック
-- `normalizeAgentFileEdits` による `{ relativePath, content }` 構造の検証
-- `assistantMessage` / `message` キーの抽出
+```
+入力: "/home/user/project/src/foo.ts"
+↓ normalizeRelativePath で先頭 / を除去
+"home/user/project/src/foo.ts"
+↓ path.resolve(workspaceRoot, ...)
+"/workspace/home/user/project/src/foo.ts"  ← 存在しない
+```
 
-**executor.ts** で file-edit ツールに関する以下の知識がハードコードされている：
-- `isFileEditRequest(prompt)` によるツール使用判定
-- `fileEditDirective` 配列の条件分岐
-- file-edit が返らなかった場合のリトライロジック
+ユーザーやAIがエラーメッセージ等から絶対パスを取得してそのまま渡すケース、workspace contextに表示される `activeFilePath`（絶対パス）をそのまま使うケースなど、絶対パスで読み取りを要求する場面は頻出する。
 
-→ **file-read やその他のツールを追加するたびに、これら3ファイルすべてを修正する必要がある。**
+#### 1.2 シェル実行の不在
+`grep` や `find` などのシェルコマンドが使えないため：
+- コード検索ができない
+- ビルド・テスト・lint の実行ができない
+- git 操作ができない
 
 ### 2. 設計方針
 
-#### 2.1 ToolDefinition インターフェース
+#### 2.1 新規ツール一覧
 
-ツールごとに以下の情報を一つのモジュールにまとめる。
+| ツールID | 目的 | JSON キー | レイヤー |
+|----------|------|-----------|---------|
+| `list-files` | workspace配下のファイル・ディレクトリ一覧を取得 | `listFiles` | tool定義 + agent-tools |
+| `shell-exec` | workspaceルートでシェルコマンドを実行 | `shellExec` | tool定義 + agent-tools |
+
+#### 2.2 `list-files` ツール設計
+
+**ツール定義** (`src/host/agent/tools/list-files-tool.ts`)
+
+AIへのプロンプト指示：
+- ファイルを読む前にまず `listFiles` でファイル一覧を取得すること
+- `listFiles` は `{ pattern?: string, maxDepth?: number }` の配列
+- `pattern` は glob パターン（例: `"**/*.ts"`, `"src/**"`）。省略時はworkspace全体
+- `maxDepth` はディレクトリ探索の最大深度。省略時は `5`
+
+AIレスポンスJSON例：
+```json
+{
+  "assistantMessage": "ファイル一覧を取得します。",
+  "listFiles": [
+    { "pattern": "src/**/*.ts", "maxDepth": 3 }
+  ]
+}
+```
+
+**ツール実行** (`src/host/agent-tools/list-files.ts`)
 
 ```ts
-type ToolDefinition<TResult = unknown> = {
-  /** ツールの一意識別子（例: "file-edit", "file-read"） */
-  id: string;
+type AgentToolListFilesRequest = {
+  workspaceRoot: string;
+  pattern?: string;   // glob。デフォルト: "**/*"
+  maxDepth?: number;  // デフォルト: 5
+};
 
-  /** AI に渡すシステムプロンプト断片（ツールの使い方の説明） */
-  promptInstructions: string[];
-
-  /** AI にツール使用を強制するときの追加指示 */
-  promptDirective: string[];
-
-  /** AI がこのツールを使うリクエストかどうかを判定する */
-  matchesRequest: (prompt: string) => boolean;
-
-  /** 安全注意事項（プロンプトに埋め込む） */
-  safetyNotice: {
-    title: string;
-    items: string[];
-  };
-
-  /** AI のレスポンス JSON からこのツールの実行指示を抽出する */
-  parseResponse: (parsed: Record<string, unknown>) => TResult[];
-
-  /** レスポンスが不足していた場合のリトライ用追加指示 */
-  retryDirective: string[];
+type AgentToolListFilesResult = {
+  workspaceRoot: string;
+  pattern: string;
+  files: string[];       // 相対パスの配列
+  truncated: boolean;    // 上限に達したか
+  totalCount: number;
 };
 ```
 
-#### 2.2 ディレクトリ構成
+実装方針：
+- `node:fs/promises` の `readdir` を再帰的に使用
+- glob マッチには軽量な自前マッチャーまたは `minimatch` 相当を実装
+  - 依存追加を避けるなら `**/*` と拡張子フィルタ程度の簡易マッチで十分
+- `.git`, `node_modules`, `dist`, `.next` 等のデフォルト除外パターンを持つ
+- 結果件数の上限を設ける（デフォルト500件）。超過時は `truncated: true`
+- workspace外へのパストラバーサルを防止（既存 `resolveWorkspaceFilePath` パターンを流用）
 
+#### 2.3 `shell-exec` ツール設計
+
+**ツール定義** (`src/host/agent/tools/shell-exec-tool.ts`)
+
+AIへのプロンプト指示：
+- ファイル検索、ビルド、テスト等にシェルコマンドが必要な場合に `shellExec` を使う
+- `shellExec` は `{ command: string, cwd?: string }` の配列
+- `cwd` は workspace root からの相対パス。省略時はworkspace root
+
+AIレスポンスJSON例：
+```json
+{
+  "assistantMessage": "TypeScriptファイルを検索します。",
+  "shellExec": [
+    { "command": "find src -name '*.ts' -type f" }
+  ]
+}
 ```
-src/host/agent/
-  tools/
-    index.ts              # 全ツール定義をまとめてエクスポート
-    types.ts              # ToolDefinition 型
-    file-edit-tool.ts     # file-edit ツール定義
-    file-read-tool.ts     # file-read ツール定義（新規追加）
-  prompt-builder.ts       # ToolDefinition[] からプロンプトを動的生成
-  response-parser.ts      # ToolDefinition[] を使ってレスポンスを解析
-  executor.ts             # ToolDefinition[] を使ってツール判定・リトライ
-  ...
-```
 
-既存の `src/host/agent-tools/file-edit.ts`（実際のファイルI/O）はそのまま残す。ツール定義モジュールは「AIに何を教えるか」と「レスポンスをどう解析するか」のみを扱い、実際の実行は既存の `agent-tools/` に委譲する。
-
-#### 2.3 各ファイルの変更方針
-
-##### `src/host/agent/tools/types.ts`（新規）
-
-`ToolDefinition` 型と `ToolRegistry` ユーティリティを定義する。
-
-##### `src/host/agent/tools/file-edit-tool.ts`（新規）
-
-現在 prompt-builder.ts, response-parser.ts, executor.ts, core/agent-tool-file-edit-state.ts に分散しているfile-edit関連の知識を集約する。
-
-具体的に移動する知識：
-- `prompt-builder.ts` の「JSON block with keys assistantMessage and fileEdits」指示 → `promptInstructions`
-- `prompt-builder.ts` の `isFileEditRequest` → `matchesRequest`
-- `executor.ts` の `fileEditDirective` → `promptDirective`
-- `executor.ts` のリトライ時追加指示 → `retryDirective`
-- `core/agent-tool-file-edit-state.ts` の `createAgentToolFileEditSafetyNotice` → `safetyNotice`
-- `response-parser.ts` の `normalizeAgentFileEdits` → `parseResponse`
-
-##### `src/host/agent/tools/file-read-tool.ts`（新規）
-
-file-read ツールの定義を新規作成する。promptInstructions にファイル読み取りの指示を記述し、parseResponse でレスポンスから読み取り指示を抽出する。
-
-##### `src/host/agent/tools/index.ts`（新規）
+**ツール実行** (`src/host/agent-tools/shell-exec.ts`)
 
 ```ts
-import { fileEditTool } from './file-edit-tool';
-import { fileReadTool } from './file-read-tool';
+type AgentToolShellExecRequest = {
+  workspaceRoot: string;
+  command: string;
+  cwd?: string;          // workspace root からの相対パス
+  timeoutMs?: number;    // デフォルト: 30000 (30秒)
+};
 
-export const agentTools = [fileEditTool, fileReadTool] as const;
-
-export { fileEditTool };
+type AgentToolShellExecResult = {
+  command: string;
+  cwd: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  truncated: boolean;     // 出力が長すぎた場合
+};
 ```
 
-##### `src/host/agent/prompt-builder.ts`（変更）
+実装方針：
+- `node:child_process` の `execFile` または `spawn` を使用
+- シェルは `/bin/sh` (Linux/Mac) または `cmd.exe` (Windows) を使用
+- **安全制御**:
+  - `cwd` は必ず workspace root 内に解決（パストラバーサル防止）
+  - タイムアウト（デフォルト30秒）を設ける。超過時は SIGTERM → SIGKILL
+  - stdout/stderr の出力上限（デフォルト100KB）。超過時は先頭を切り詰めて `truncated: true`
+  - **危険コマンドのブロックリスト**: `rm -rf /`, `sudo`, `shutdown` 等のパターンを拒否
+  - 環境変数の伝播は最小限（PATH等のみ）
 
-**Before:**
-- `buildSystemPrompt` が `agentToolFileEditSafetyNotice`, `fileEditDirective`, `extraInstructions` を引数に取り、file-edit 固有の指示をハードコードしている
+#### 2.4 `file-read` ツールの改善
 
-**After:**
-- `buildSystemPrompt` が `ToolDefinition[]` を受け取り、各ツールの `promptInstructions` と `safetyNotice` を自動的に展開する
-- `isFileEditRequest` は削除し、各ツールの `matchesRequest` に委譲
+##### 2.4.1 絶対パス対応
+
+**型の変更** (`src/host/agent-tools/file-read.ts`)
+
+相対パス・絶対パスの両方を受け付ける `filePath` のみとする。
 
 ```ts
-export function buildSystemPrompt({
-  contextPrompt,
-  tools,
-  activeToolIds,
-  extraInstructions,
-}: {
-  contextPrompt: string;
-  tools: ToolDefinition[];
-  activeToolIds: string[];  // prompt に基づいて有効化されたツール
-  extraInstructions: string[];
-}) {
-  const baseInstructions = [
-    'You are a VS Code workspace agent.',
-    // ... 基本指示
-  ];
+export type AgentToolFileReadRequest = {
+  workspaceRoot: string;
+  filePath: string;        // 相対パスまたは workspace 内の絶対パス
+};
+```
 
-  const toolInstructions = tools.flatMap(tool => {
-    const lines = [...tool.promptInstructions];
-    if (activeToolIds.includes(tool.id)) {
-      lines.push(...tool.promptDirective);
+**パス解決ロジックの変更** (`resolveWorkspaceFilePath`)
+
+```
+入力パスが絶対パスかどうかを判定（path.isAbsolute）
+├─ 絶対パスの場合
+│   ├─ workspace root 配下か判定
+│   │   ├─ YES → そのまま使用。relativePath は root からの相対パスを算出
+│   │   └─ NO  → workspace外アクセスとしてエラー
+├─ 相対パスの場合
+│   └─ path.resolve(workspaceRoot, 正規化した相対パス) で解決
+```
+
+具体例：
+```
+workspaceRoot: "/home/user/project"
+
+入力: "/home/user/project/src/foo.ts" (絶対パス、workspace内)
+→ absolutePath: "/home/user/project/src/foo.ts"
+→ relativePath: "src/foo.ts"
+
+入力: "src/foo.ts" (相対パス)
+→ absolutePath: "/home/user/project/src/foo.ts"
+→ relativePath: "src/foo.ts"
+
+入力: "/etc/passwd" (絶対パス、workspace外)
+→ エラー: "workspace root の外側への読み取りは許可されていません。"
+```
+
+**ツール定義の変更** (`src/host/agent/tools/file-read-tool.ts`)
+
+`parseResponse` で `filePath` のみを取得する。
+
+`promptInstructions` に追加：
+- 「fileReads の各要素は `{ "filePath": string }` 形式。相対パスでも絶対パスでも指定可能」
+- 「workspace context の activeFilePath 等から取得した絶対パスはそのまま使ってよい」
+
+**`agent/types.ts` の変更**
+
+```ts
+export type AgentFileRead = {
+  filePath: string;       // 相対パスまたは絶対パス
+};
+```
+
+##### 2.4.2 プロンプト改善
+
+既存の `file-read` ツールのプロンプト指示を改善し、以下のフローを推奨する：
+
+```
+1. ユーザーがファイル操作を要求
+2. AI が listFiles でファイル一覧を取得
+3. AI が取得した一覧からターゲットファイルを選定
+4. AI が fileReads で選定したファイルを読み取り
+```
+
+`file-read-tool.ts` の `promptInstructions` に以下を追加：
+- 「パスが不明な場合は、まず `listFiles` でファイル一覧を取得してからファイルを読むこと」
+- 「推測でパスを指定せず、`listFiles` の結果から正確なパスを使うこと」
+
+#### 2.5 オーケストレーション層の変更 (`agent-orchestrator.ts`)
+
+既存パターンに倣い、以下の関数を追加：
+
+```ts
+async function applyAgentToolListFiles(result: AgentResult)
+  → Array<{ pattern: string; files: string[] }>
+
+async function applyAgentToolShellExec(access: OrchestrationAccess, result: AgentResult)
+  → Array<{ command: string; stdout: string; stderr: string; exitCode: number | null }>
+```
+
+`runWorkspaceAgent` 内の実行順序：
+```
+1. AI応答をパース
+2. listFiles があれば実行 → 結果をAIへフィードバック（※後述）
+3. shellExec があれば実行 → 結果をAIへフィードバック
+4. fileReads があれば実行
+5. fileEdits があれば実行
+6. 最終レスポンスを組み立て
+```
+
+**注意**: `listFiles` や `shellExec` の結果をAIに返してさらに判断させる「マルチターン」パターンは Phase 2 で検討。Phase 1 では結果をユーザーに表示するのみとする。
+
+#### 2.6 `buildAgentResponseText` の拡張
+
+`listFiles` と `shellExec` の結果もレスポンステキストに含める：
+
+```
+### ファイル一覧 (src/**/*.ts)
+- src/host/agent-tools/file-read.ts
+- src/host/agent-tools/file-edit.ts
+- ...
+
+### コマンド実行結果
+$ find src -name '*.ts'
+(stdout)
+```
+
+#### 2.7 型の追加
+
+`src/host/agent/types.ts`:
+```ts
+export type AgentListFiles = {
+  pattern?: string;
+  maxDepth?: number;
+};
+
+export type AgentShellExec = {
+  command: string;
+  cwd?: string;
+};
+```
+
+`src/host/agent/agent-result.ts` に `getListFilesOutputs`, `getShellExecOutputs` を追加。
+
+### 3. ファイル変更一覧
+
+| 操作 | パス | 内容 |
+|------|------|------|
+| **新規** | `src/host/agent-tools/list-files.ts` | ファイル一覧取得の実装 |
+| **新規** | `src/host/agent-tools/shell-exec.ts` | シェル実行の実装 |
+| **新規** | `src/host/agent/tools/list-files-tool.ts` | list-files ツール定義 |
+| **新規** | `src/host/agent/tools/shell-exec-tool.ts` | shell-exec ツール定義 |
+| **変更** | `src/host/agent-tools/index.ts` | 新規ツールの export 追加 |
+| **変更** | `src/host/agent/tools/index.ts` | 新規ツールの登録 |
+| **変更** | `src/host/agent/types.ts` | `AgentListFiles`, `AgentShellExec` 型追加 |
+| **変更** | `src/host/agent/agent-result.ts` | ヘルパー関数追加 |
+| **変更** | `src/host/agent-tools/file-read.ts` | 絶対パス対応（パス解決ロジック改修、型変更） |
+| **変更** | `src/host/agent/tools/file-read-tool.ts` | 絶対パス対応（`parseResponse` 変更）、プロンプト指示改善 |
+| **変更** | `src/host/agent-orchestrator.ts` | 新ツールの実行フロー追加、レスポンス組み立て拡張、file-read 呼び出し側の `filePath` 対応 |
+| **変更** | `src/host/agent/prompt-builder.ts` | ツール連携フローの指示追加（必要に応じて） |
+
+### 4. 安全制御まとめ
+
+| 制御 | 対象ツール | 方法 |
+|------|-----------|------|
+| workspace外アクセス防止 | 全ツール | パス解決後に `startsWith(workspaceRoot)` チェック |
+| 絶対パスのworkspace境界チェック | file-read | `path.isAbsolute` → workspace root 配下か判定。外側なら拒否 |
+| デフォルト除外ディレクトリ | list-files | `.git`, `node_modules`, `dist` 等を除外 |
+| 結果件数上限 | list-files | デフォルト500件。超過時 `truncated: true` |
+| コマンドブロックリスト | shell-exec | 危険パターン (`rm -rf /`, `sudo` 等) を拒否 |
+| タイムアウト | shell-exec | デフォルト30秒。超過時プロセス強制終了 |
+| 出力サイズ上限 | shell-exec | stdout/stderr 各100KB。超過時先頭切り詰め |
+| 環境変数制限 | shell-exec | PATH 等の最小限のみ伝播 |
+
+### 5. 実装順序
+
+1. **共通基盤**: `agent/types.ts` に型追加、`agent-result.ts` にヘルパー追加
+2. **list-files**: ツール定義 → ツール実行 → index登録
+3. **shell-exec**: ツール定義 → ツール実行 → index登録
+4. **オーケストレーション**: `agent-orchestrator.ts` に実行フロー追加
+5. **プロンプト改善**: `file-read-tool.ts` の指示改善
+6. **結合テスト**: 全ツールが連携して動作することを確認
+
+---
+
+### 6. マルチターン・ツールループ（自律的タスク遂行）
+
+#### 6.1 現在の問題
+
+ユーザーが「readmeを読んで」と指示した場合、AIは以下のフローを実行すべきである：
+
+```
+1. ユーザー: "readmeを読んで"
+2. AI: listFiles で README* を検索 → ファイル一覧を取得
+3. AI: 一覧から readme.md を選定し fileReads で読み取り
+4. AI: 内容をユーザーに提示
+```
+
+しかし現在のアーキテクチャでは **ステップ2の後で処理が終了** してしまう。
+
+原因は `runWorkspaceAgent` が以下のシングルターン構造になっているため：
+
+```
+AI呼び出し(1回) → ツール実行(全種一括) → レスポンス組み立て → 完了
+```
+
+AIが `listFiles` だけを返した応答に対して、**ツール実行結果をAIにフィードバックして次の判断を促す** 仕組みが存在しない。
+
+実行ログが示す具体的な問題：
+- 1回目のAI応答: `listFiles` のみ返す（ファイルパスが不明なため正しい行動）
+- `executor.ts` のリトライ機構が `collectRetryDirectivesForMissingOutputs` で `fileReads` が不足と判定
+- リトライ指示は「前回の応答に fileReads がなかったので含めろ」という内容
+- しかしリトライのプロンプトに **listFiles の実行結果が含まれていない**
+- AIは listFiles 結果を知らないまま再応答するため、再び listFiles を返すか、パスを推測するしかない
+- 結果として、ファイル一覧を表示したところで処理が止まる
+
+#### 6.2 設計方針：オーケストレーション層でのツールループ
+
+AIの自律的なタスク遂行を可能にするため、**オーケストレーション層にツール実行ループ**を導入する。
+
+```
+┌─────────────────────────────────────────┐
+│            ユーザー入力                    │
+└──────────────┬──────────────────────────┘
+               ▼
+┌─────────────────────────────────────────┐
+│      AI 呼び出し (初回)                    │
+│  systemPrompt + userPrompt              │
+└──────────────┬──────────────────────────┘
+               ▼
+┌─────────────────────────────────────────┐
+│      レスポンスパース                      │
+│  → toolOutputs を抽出                    │
+└──────────────┬──────────────────────────┘
+               ▼
+         ツール指示あり？ ───── No ──→ 最終レスポンス組み立て → 完了
+               │
+              Yes
+               ▼
+┌─────────────────────────────────────────┐
+│      ツール実行                           │
+│  listFiles / shellExec / fileReads      │
+│  / fileEdits を順次実行                   │
+└──────────────┬──────────────────────────┘
+               ▼
+         まだ未達成の目標あり？ ── No ──→ 最終レスポンス組み立て → 完了
+         (AIが追加ツール呼び出し             │
+          を必要としているか)               │
+               │                          │
+              Yes                         │
+               ▼                          │
+┌─────────────────────────────────────────┐
+│      AI 再呼び出し (ターン N)              │
+│  systemPrompt                           │
+│  + 元のuserPrompt                        │
+│  + ツール実行結果のフィードバック             │
+└──────────────┬──────────────────────────┘
+               ▼
+         (レスポンスパースに戻る)
+         ※ 最大ターン数に達したら強制終了
+```
+
+#### 6.3 継続判定ロジック
+
+各ターン終了後、**次のターンが必要かどうか**を以下の基準で判定する：
+
+```ts
+function shouldContinueToolLoop(
+  turnIndex: number,
+  maxTurns: number,
+  result: AgentResult,
+  toolResults: ToolExecutionResults,
+): boolean {
+  // 最大ターン数に達した → 終了
+  if (turnIndex >= maxTurns) return false;
+
+  // AIがツール指示を一切含まなかった → 最終回答と判断 → 終了
+  if (!hasAnyToolOutputs(result)) return false;
+
+  // 中間ツール(listFiles, shellExec)のみ実行され、
+  // 最終ツール(fileReads, fileEdits)が未実行 → 継続
+  const hasIntermediateOnly =
+    (toolResults.listFiles.length > 0 || toolResults.shellExec.length > 0) &&
+    toolResults.fileReads.length === 0 &&
+    toolResults.fileEdits.length === 0;
+  if (hasIntermediateOnly) return true;
+
+  // fileReads はあるが fileEdits がない、かつ元のプロンプトが
+  // 編集を要求している → 継続（読み取り結果を見てから編集すべき）
+  // ※ この判定はプロンプト分析が必要なので Phase 2
+
+  // それ以外 → 終了（ツール実行完了と見なす）
+  return false;
+}
+```
+
+**中間ツール・最終ツールの分類**：
+
+| 分類 | ツール | 役割 |
+|------|--------|------|
+| 中間ツール | `listFiles`, `shellExec` | 情報収集。結果をAIに返して次の判断を促す |
+| 最終ツール | `fileReads`, `fileEdits` | 成果物の取得・変更。実行結果はユーザーに表示 |
+
+中間ツールのみが実行された場合、AIはまだタスクの途中であり、結果をフィードバックして次のアクションを判断させる必要がある。
+
+#### 6.4 ツール実行結果のフィードバック形式
+
+ツール実行結果をAIに返す際のプロンプト形式：
+
+```ts
+function buildToolFeedbackPrompt(
+  originalPrompt: string,
+  toolResults: ToolExecutionResults,
+): string {
+  const parts: string[] = [];
+  parts.push('Conversation history:');
+  parts.push(`User: ${originalPrompt}`);
+
+  // listFiles 結果
+  for (const block of toolResults.listFiles) {
+    const fileList = block.files.length > 0
+      ? block.files.map(f => `- ${f}`).join('\n')
+      : '（該当なし）';
+    parts.push([
+      `Assistant: listFiles の結果 (${block.pattern}):`,
+      fileList,
+      `件数: ${block.totalCount}`,
+      block.truncated ? '（件数上限により省略）' : '',
+    ].filter(Boolean).join('\n'));
+  }
+
+  // shellExec 結果
+  for (const block of toolResults.shellExec) {
+    parts.push([
+      `Assistant: shellExec の結果:`,
+      `$ ${block.command}`,
+      `stdout:\n${block.stdout}`,
+      block.stderr ? `stderr:\n${block.stderr}` : '',
+      `exitCode: ${block.exitCode}`,
+    ].filter(Boolean).join('\n'));
+  }
+
+  parts.push('Current user request:');
+  parts.push(`上記のツール結果を踏まえて、元のユーザーリクエスト「${originalPrompt}」を達成してください。必要なら追加のツール呼び出しを行ってください。`);
+
+  return parts.join('\n\n');
+}
+```
+
+#### 6.5 `runWorkspaceAgent` の変更イメージ
+
+```ts
+export async function runWorkspaceAgent(
+  access: OrchestrationAccess,
+  settings: SettingsConfig,
+  prompt: string,
+  conversation: WorkspaceExecutionState['messages'] = [],
+) {
+  // ... 既存の初期化コード ...
+
+  const MAX_TOOL_TURNS = 5;
+  let accumulatedListFiles: AgentOrchestratorListFilesBlock[] = [];
+  let accumulatedShellExec: AgentOrchestratorShellExecBlock[] = [];
+  let accumulatedFileReads: Array<{ relativePath: string; content: string }> = [];
+  let accumulatedEdits: Array<{ relativePath: string; absolutePath: string }> = [];
+  let currentPrompt = prompt;
+  let currentConversation = conversation;
+
+  for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+    const result = await executeWorkspacePromptStream(
+      normalizedSettings,
+      currentPrompt,
+      { conversation: currentConversation, observer },
+    );
+
+    // ツール実行
+    const listFilesBlocks = await applyAgentToolListFiles(result);
+    const shellExecBlocks = await applyAgentToolShellExec(result);
+    const fileReadBlocks = await applyAgentToolFileReads(result);
+    const appliedEdits = await applyAgentToolFileEdits(access, result);
+
+    // 結果を蓄積
+    accumulatedListFiles.push(...listFilesBlocks);
+    accumulatedShellExec.push(...shellExecBlocks);
+    accumulatedFileReads.push(...fileReadBlocks);
+    accumulatedEdits.push(...appliedEdits);
+
+    // 継続判定
+    const hasIntermediateOnly =
+      (listFilesBlocks.length > 0 || shellExecBlocks.length > 0) &&
+      fileReadBlocks.length === 0 &&
+      appliedEdits.length === 0;
+
+    if (!hasIntermediateOnly) {
+      // 最終ツールが実行された or ツール指示なし → ループ終了
+      break;
     }
-    lines.push(tool.safetyNotice.title);
-    lines.push(...tool.safetyNotice.items.map(item => `- ${item}`));
-    return lines;
-  });
 
-  return [
-    ...baseInstructions,
-    ...toolInstructions,
-    ...extraInstructions,
-    'Workspace context:',
-    contextPrompt,
-  ].join('\n');
+    // ツール結果をフィードバックして次のターンへ
+    currentPrompt = buildToolFeedbackPrompt(
+      prompt,
+      { listFiles: listFilesBlocks, shellExec: shellExecBlocks },
+    );
+    // 会話履歴にAIの中間応答を追加（コンテキスト維持）
+    currentConversation = [
+      ...currentConversation,
+      { role: 'assistant', content: result.assistantMessage, status: 'success' },
+    ];
+  }
+
+  // 最終レスポンス組み立て（蓄積した全結果を使う）
+  const response = buildAgentResponseText(
+    result, accumulatedEdits, accumulatedFileReads,
+    accumulatedListFiles, accumulatedShellExec,
+  );
+  // ... 以降は既存コード ...
 }
 ```
 
-##### `src/host/agent/response-parser.ts`（変更）
+#### 6.6 `executor.ts` のリトライ機構との関係
 
-**Before:**
-- `parseAgentResult` が `fileEdits` キーのみを決め打ちで抽出
+現在 `executor.ts` にあるリトライ機構（`collectRetryDirectivesForMissingOutputs`）は **プロンプトレベルのリトライ**であり、ツール実行結果のフィードバックは行わない。
 
-**After:**
-- `parseAgentResult` が `ToolDefinition[]` を受け取り、各ツールの `parseResponse` を呼び出して結果を `AgentResult` に格納
-- `AgentResult` 型を拡張して、ツールごとの結果を汎用的に保持可能にする
+新しいツールループとの役割分担：
 
-```ts
-export function parseAgentResult(
-  rawResponse: string,
-  tools: ToolDefinition[],
-): AgentResult {
-  // ... JSON 抽出ロジック（既存）
-  // 各ツールの parseResponse を呼び出し、ツール ID に応じて AgentResult の fileEdits / fileReads 等へ格納する
-}
+| 機構 | 場所 | 目的 | フィードバック |
+|------|------|------|-------------|
+| プロンプトリトライ | `executor.ts` | AIが必要なJSON構造を返さなかった場合の再試行 | なし（同じプロンプトで再送） |
+| ツールループ | `agent-orchestrator.ts` | ツール実行結果を基に次のアクションを判断 | あり（ツール結果をプロンプトに含める） |
+
+`executor.ts` のリトライは **形式面の補正**（JSONが不足していた）に集中し、`agent-orchestrator.ts` のツールループは **論理面の継続**（タスク完了まで自律的に動作）を担当する。
+
+#### 6.7 安全制御
+
+| 制御 | 方法 |
+|------|------|
+| 最大ターン数 | `MAX_TOOL_TURNS = 5`（無限ループ防止） |
+| ターンごとのタイムアウト | 既存のAPI呼び出しタイムアウトをそのまま適用 |
+| 合計実行時間上限 | ループ全体で120秒を超えたら強制終了（将来検討） |
+| コスト制御 | 各ターンのトークン使用量は独立。ループ全体の上限は将来検討 |
+| 進捗表示 | 各ターン開始時にUI側にステータスメッセージを送信 |
+
+#### 6.8 Phase 分け
+
+| Phase | 内容 |
+|-------|------|
+| Phase 1（本ブランチ） | 中間ツール→最終ツールの2ターンループ。`listFiles` → `fileReads` の基本フロー |
+| Phase 2 | 3ターン以上の複雑なフロー（`listFiles` → `fileReads` → `fileEdits`）。プロンプト分析による継続判定の高度化 |
+| Phase 3 | ユーザー承認を挟む対話型ループ。危険操作（`fileEdits`, `shellExec`）の前に確認を求める |
+
+#### 6.9 ファイル変更一覧（追加分）
+
+| 操作 | パス | 内容 |
+|------|------|------|
+| **変更** | `src/host/agent-orchestrator.ts` | `runWorkspaceAgent` にツールループ導入。`appendToolFeedbackMessages` で会話にツール結果ターンを挿入。`buildToolFeedbackPrompt` を利用 |
+| **変更** | `src/host/agent/prompt-builder.ts` | `buildToolFeedbackPrompt`（ツールフィードバック用プロンプト） |
+| **変更** | `src/host/agent/executor.ts` | `executeWorkspacePromptStream` に `toolActivationPrompt` を追加（2ターン目以降も元ユーザー文で `getActiveToolIds` / `ensureFileEdits` と整合） |
+| **変更** | `src/host/agent/agent-result.ts` | `hasAnyToolOutputs` |
+| **変更** | `src/host/agent/tools/types.ts` | ツール分類（intermediate / terminal）のメタデータ追加（任意） |
+
+#### 6.10 具体的な動作シナリオ
+
+**シナリオ: 「readmeを読んで」**
+
+```
+ターン1:
+  入力: "readmeを読んで"
+  AI応答: { listFiles: [{ pattern: "**/README*" }], assistantMessage: "READMEを探します" }
+  ツール実行: listFiles → ["readme.md", "src/ui/README.md"]
+  継続判定: 中間ツールのみ → 継続
+
+ターン2:
+  入力: (ツールフィードバック)
+    "listFiles結果: readme.md, src/ui/README.md。
+     元のリクエスト「readmeを読んで」を達成してください。"
+  AI応答: { fileReads: [{ filePath: "readme.md" }], assistantMessage: "readmeの内容:" }
+  ツール実行: fileReads → ファイル内容取得
+  継続判定: 最終ツールが実行された → ループ終了
+
+最終レスポンス: AI応答メッセージ + ファイル内容
 ```
 
-##### `src/host/agent/executor.ts`（変更）
+**シナリオ: 「src配下のTypeScriptファイルでエラーハンドリングを検索して」**
 
-**Before:**
-- `isFileEditRequest` と `fileEditDirective` による file-edit 固有の分岐
-- リトライロジックが file-edit にハードコード
-
-**After:**
-- `agentTools` を import して `matchesRequest` でアクティブなツールを判定
-- リトライ条件を汎用化
-
-```ts
-import { agentTools } from './tools';
-
-// ツール判定
-const activeToolIds = agentTools
-  .filter(tool => tool.matchesRequest(prompt))
-  .map(tool => tool.id);
-
-const systemPrompt = buildSystemPrompt({
-  contextPrompt,
-  tools: agentTools,
-  activeToolIds,
-  extraInstructions: [],
-});
 ```
+ターン1:
+  入力: "src配下のTypeScriptファイルでエラーハンドリングを検索して"
+  AI応答: { shellExec: [{ command: "grep -rn 'catch\\|throw\\|Error' src/ --include='*.ts'" }] }
+  ツール実行: shellExec → 検索結果
+  継続判定: 中間ツールのみ → 継続
 
-##### `src/host/agent/types.ts`（変更）
+ターン2:
+  入力: (ツールフィードバック + grep結果)
+  AI応答: { assistantMessage: "以下のファイルでエラーハンドリングが見つかりました: ..." }
+  ツール実行: ツール指示なし
+  継続判定: ツール指示なし → ループ終了
 
-`AgentResult` を拡張して、将来のツール結果を汎用的に保持可能にする。
-
-```ts
-export type AgentResult = {
-  assistantMessage: string;
-  toolOutputs: Record<string, unknown[]>; // ツール ID → parseResponse の配列
-  rawResponse: string;
-};
+最終レスポンス: AI応答メッセージ
 ```
-
-### 3. 移行戦略
-
-#### Phase 1: ToolDefinition 基盤の構築
-1. `src/host/agent/tools/types.ts` に `ToolDefinition` 型を定義
-2. `src/host/agent/tools/file-edit-tool.ts` に file-edit の知識を集約
-3. `src/host/agent/tools/index.ts` でエクスポート
-
-#### Phase 2: 利用側の移行
-4. `prompt-builder.ts` を `ToolDefinition[]` ベースに変更
-5. `response-parser.ts` を `ToolDefinition[]` ベースに変更
-6. `executor.ts` の条件分岐を `ToolDefinition` ベースに変更
-
-#### Phase 3: file-read ツールの追加
-7. `src/host/agent/tools/file-read-tool.ts` を新規作成
-8. `agentTools` 配列に追加するだけで、prompt-builder / response-parser / executor は変更不要であることを確認
-
-### 4. 設計上の注意点
-
-- **AgentResult**: ツール結果は `toolOutputs[toolId]` に集約。オーケストレーションは `agent-result.ts` の `getFileEditOutputs` / `getFileReadOutputs` で参照する。
-- **core 層**: UI 用の `createAgentToolFileEditSafetyNotice` と `agentToolFileEdit` 状態は `core` に残す。ツール定義の `safetyNotice` は同関数を参照する。
-- **実行層との分離**: `ToolDefinition` はプロンプトとレスポンス解析のみ。ファイル I/O は `agent-tools/`。オーケストレーションは `applyAgentToolFileEdits` と `applyAgentToolFileReads` で `toolOutputs` を解釈する。
-- **テスト**: file-edit-tool の `parseResponse` は既存の `normalizeAgentFileEdits` のテストケースをそのまま流用できる。prompt 生成のスナップショットテストを追加して、ツール追加時にプロンプトが正しく変化することを検証する。

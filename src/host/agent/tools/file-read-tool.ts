@@ -13,14 +13,14 @@ function normalizeAgentFileReads(value: unknown): AgentFileRead[] {
 			}
 
 			const record = entry as Record<string, unknown>;
-			const relativePath = typeof record.relativePath === 'string' ? record.relativePath.trim() : '';
+			const filePath = typeof record.filePath === 'string' ? record.filePath.trim() : '';
 
-			if (!relativePath) {
+			if (!filePath) {
 				return undefined;
 			}
 
 			return {
-				relativePath,
+				filePath,
 			};
 		})
 		.filter((entry): entry is AgentFileRead => Boolean(entry));
@@ -30,13 +30,15 @@ export const fileReadTool: ToolDefinition = {
 	id: 'file-read',
 	promptInstructions: [
 		'When the user asks to read or show file contents, include a fileReads array in the JSON.',
-		'fileReads must be an array of objects shaped like { "relativePath": string } listing workspace-relative paths.',
+		'fileReads must be an array of objects shaped like { "filePath": string }.',
+		'filePath may be a workspace-relative path or an absolute path inside the workspace (e.g. activeFilePath from workspace context).',
+		'If the path is uncertain, call listFiles first and use paths from that result—do not guess paths.',
 		'If no file read is needed, answer normally without listing fileReads.',
 	],
 	promptDirective: [
 		'This request requires reading workspace files.',
 		'Return JSON only in a fenced ```json block.',
-		'Include every file path to read in fileReads.',
+		'Include every file path to read in fileReads (filePath field).',
 	],
 	matchesRequest: (prompt: string) =>
 		/(?:読む|読み取り|表示|内容|中身|read|open|show|cat|type)\b/i.test(prompt) ||
@@ -44,13 +46,13 @@ export const fileReadTool: ToolDefinition = {
 	safetyNotice: {
 		title: 'ファイル読み取り前の注意',
 		items: [
-			'workspace root 内の相対パスのみを指定する',
+			'workspace root 内のパスのみ（相対でも絶対でも）',
 			'機密が含まれる可能性があるファイルは説明で明示する',
 		],
 	},
 	parseResponse: (parsed: Record<string, unknown>) => normalizeAgentFileReads(parsed.fileReads),
 	retryDirective: [
 		'Your previous response did not include fileReads.',
-		'Respond again with JSON only and include the required fileReads with relativePath fields.',
+		'Respond again with JSON only and include the required fileReads with filePath fields.',
 	],
 };
