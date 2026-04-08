@@ -129,7 +129,7 @@ export function createRunningWorkspaceExecutionState(
 		prompt,
 		status: 'running',
 		canRetry: false,
-		response: 'OpenAI 互換 Provider へ送信中です。',
+		response: '',
 		messages: [
 			...messages,
 			{
@@ -203,12 +203,13 @@ export function createErrorWorkspaceExecutionState(
 	messages: WorkspaceConversationMessage[] = [],
 ) {
 	const now = new Date().toISOString();
+	const responseForState = response.trim().length > 0 ? response : errorMessage;
 	return createWorkspaceExecutionState({
 		settings,
 		prompt,
 		status: 'error',
 		canRetry: true,
-		response,
+		response: responseForState,
 		errorMessage,
 		messages:
 			messages.length > 0
@@ -216,7 +217,9 @@ export function createErrorWorkspaceExecutionState(
 						message.role === 'assistant' && message.status === 'streaming'
 							? {
 									...message,
-									content: response,
+									role: 'error',
+									title: 'エラー',
+									content: errorMessage,
 									status: 'error' as const,
 									timestamp: now,
 									canRetry: true,

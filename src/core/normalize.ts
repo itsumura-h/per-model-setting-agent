@@ -30,10 +30,6 @@ function normalizeProvider(input: Partial<ProviderConfig>, fallbackPreset?: Prov
 		typeof input.name === 'string' && input.name.trim().length > 0 ? input.name.trim() : preset?.name ?? '未設定のプロバイダー';
 	const baseUrl =
 		typeof input.baseUrl === 'string' && input.baseUrl.trim().length > 0 ? input.baseUrl.trim() : preset?.baseUrl ?? '';
-	const description =
-		typeof input.description === 'string' && input.description.trim().length > 0
-			? input.description.trim()
-			: preset?.description ?? '';
 
 	return {
 		id: typeof input.id === 'string' && input.id.trim().length > 0 ? input.id.trim() : createId('provider'),
@@ -42,7 +38,6 @@ function normalizeProvider(input: Partial<ProviderConfig>, fallbackPreset?: Prov
 		baseUrl,
 		apiKey: typeof input.apiKey === 'string' ? input.apiKey : '',
 		enabled: typeof input.enabled === 'boolean' ? input.enabled : true,
-		description,
 		headers: normalizeHeaders(input.headers, preset?.defaultHeaders ?? {}),
 	};
 }
@@ -68,7 +63,6 @@ function normalizeModel(input: Partial<ModelConfig>, providers: ProviderConfig[]
 				? input.modelId.trim()
 				: preset?.defaultModelId ?? '',
 		enabled: typeof input.enabled === 'boolean' ? input.enabled : true,
-		description: typeof input.description === 'string' ? input.description.trim() : '',
 	};
 }
 
@@ -87,7 +81,6 @@ function createDefaultModels(providers: ProviderConfig[]) {
 					name: preset.name,
 					modelId: preset.modelId,
 					enabled: preset.enabled,
-					description: preset.description,
 				},
 				providers,
 			),

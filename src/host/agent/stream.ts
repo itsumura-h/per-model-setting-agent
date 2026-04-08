@@ -1,6 +1,7 @@
 import OpenAI, { APIError } from 'openai';
 
 import { parseAgentResult, extractChatCompletionText } from './response-parser';
+import { agentTools } from './tools';
 import type { AgentResult, AgentStreamEvent, AgentStreamObserver } from './types';
 
 export async function emitStreamEvent(observer: AgentStreamObserver | undefined, event: AgentStreamEvent) {
@@ -189,7 +190,7 @@ export async function requestAgentCompletion({
 		],
 	});
 
-	return parseAgentResult(extractChatCompletionText(completion));
+	return parseAgentResult(extractChatCompletionText(completion), agentTools);
 }
 
 async function finalizeAgentStream({
@@ -201,11 +202,11 @@ async function finalizeAgentStream({
 	requestId: string;
 	observer?: AgentStreamObserver;
 }): Promise<AgentResult> {
-	const parsedResult = parseAgentResult(text);
+	const parsedResult = parseAgentResult(text, agentTools);
 	const completeEvent: Extract<AgentStreamEvent, { type: 'complete' }> = {
 		type: 'complete',
 		text: parsedResult.assistantMessage,
-		fileEdits: parsedResult.fileEdits,
+		toolOutputs: parsedResult.toolOutputs,
 		rawResponse: parsedResult.rawResponse,
 		requestId,
 		timestamp: new Date().toISOString(),

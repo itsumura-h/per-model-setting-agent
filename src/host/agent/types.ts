@@ -3,9 +3,27 @@ export type AgentFileEdit = {
 	content: string;
 };
 
+export type AgentFileRead = {
+	/** workspace 相対パスまたは workspace 内の絶対パス */
+	filePath: string;
+};
+
+export type AgentListFiles = {
+	pattern?: string;
+	maxDepth?: number;
+};
+
+export type AgentShellExec = {
+	command: string;
+	cwd?: string;
+};
+
+/** ツール ID（例: file-edit-tool の id）→ そのツールの parseResponse 結果の配列 */
+export type AgentToolOutputs = Record<string, unknown[]>;
+
 export type AgentResult = {
 	assistantMessage: string;
-	fileEdits: AgentFileEdit[];
+	toolOutputs: AgentToolOutputs;
 	rawResponse: string;
 };
 
@@ -28,7 +46,7 @@ export type AgentStreamEvent =
 	| {
 			type: 'complete';
 			text: string;
-			fileEdits: AgentFileEdit[];
+			toolOutputs: AgentToolOutputs;
 			rawResponse: string;
 			requestId?: string;
 			timestamp: string;

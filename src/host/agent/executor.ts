@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import { createAgentToolFileEditSafetyNotice, getWorkspaceExecutionContext } from '../../core/index';
+import { getWorkspaceExecutionContext } from '../../core/index';
 import type { SettingsConfig, WorkspaceConversationMessage } from '../../core/index';
+import { appendPermosaAgentDebugLog } from '../permosa-debug-log';
 import { collectWorkspaceContext, formatWorkspaceContextForPrompt } from '../workspace-context';
 import { createOpenAIClient, initializeOpenAIAgentsRuntime } from './client';
 import { formatAgentError } from './error';
 import { ensureFileEdits } from './file-edit-inference';
-import { buildSystemPrompt, buildConversationPrompt, isFileEditRequest } from './prompt-builder';
+import { buildSystemPrompt, buildConversationPrompt } from './prompt-builder';
 import {
 	emitStreamEvent,
 	requestAgentChatCompletionStream,
@@ -14,7 +15,35 @@ import {
 	requestAgentResponsesStream,
 	shouldFallbackToChatCompletions,
 } from './stream';
-import type { AgentStreamObserver } from './types';
+import { agentTools, getActiveToolIds } from './tools';
+import type { AgentResult, AgentStreamObserver, AgentToolOutputs } from './types';
+
+/** リトライ応答で空のツール出力は 1 回目の結果を引き継ぐ（listFiles のあと fileReads だけ返すケース向け） */
+function mergeToolOutputsOnRetry(primary: AgentToolOutputs, retry: AgentToolOutputs): AgentToolOutputs {
+	const merged: AgentToolOutputs = { ...primary };
+	for (const [toolId, items] of Object.entries(retry)) {
+		if (Array.isArray(items) && items.length > 0) {
+			merged[toolId] = items;
+		}
+	}
+	return merged;
+}
+
+function collectRetryDirectivesForMissingOutputs(activeToolIds: string[], primaryResult: AgentResult): string[] {
+	const directives: string[] = [];
+	for (const id of activeToolIds) {
+		const tool = agentTools.find((t) => t.id === id);
+		if (!tool) {
+			continue;
+		}
+		const outputs = primaryResult.toolOutputs[id];
+		const len = Array.isArray(outputs) ? outputs.length : 0;
+		if (len === 0) {
+			directives.push(...tool.retryDirective);
+		}
+	}
+	return directives;
+}
 
 export async function executeWorkspacePrompt(settings: SettingsConfig, prompt: string) {
 	return executeWorkspacePromptStream(settings, prompt);
@@ -26,10 +55,18 @@ export async function executeWorkspacePromptStream(
 	options?: {
 		conversation?: WorkspaceConversationMessage[];
 		observer?: AgentStreamObserver;
+		/** どのツールを有効にするか・ensureFileEdits の判定に使う。未指定時は `prompt`。ツールループの2ターン目以降は元のユーザー文を渡すこと。 */
+		toolActivationPrompt?: string;
 	},
 ) {
 	const observer = options?.observer;
+	const intentPrompt = (options?.toolActivationPrompt ?? prompt).trim();
 	const { provider, model, configurationIssues, isReady } = getWorkspaceExecutionContext(settings);
+	const debugMeta = {
+		providerName: provider?.name,
+		modelName: model?.name,
+		modelId: model?.modelId,
+	};
 	if (!isReady || !provider || !model) {
 		throw new Error(configurationIssues.join('\n') || 'Provider / Model の設定が不足しています。');
 	}
@@ -43,19 +80,11 @@ export async function executeWorkspacePromptStream(
 		conversation: options?.conversation ?? [],
 		prompt,
 	});
-	const agentToolFileEditSafetyNotice = createAgentToolFileEditSafetyNotice();
-	const fileEditDirective = isFileEditRequest(prompt)
-		? [
-				'This request requires file creation or editing.',
-				'Do not ask follow-up questions or confirmation questions.',
-				'Return JSON only in a fenced ```json block.',
-				'Include every file to create or update in fileEdits.',
-		  ]
-		: [];
+	const activeToolIds = getActiveToolIds(intentPrompt);
 	const systemPrompt = buildSystemPrompt({
 		contextPrompt,
-		agentToolFileEditSafetyNotice,
-		fileEditDirective,
+		tools: agentTools,
+		activeToolIds,
 		extraInstructions: [],
 	});
 	const requestId = randomUUID();
@@ -71,40 +100,54 @@ export async function executeWorkspacePromptStream(
 	});
 
 	try {
-		const primaryResult = ensureFileEdits(
-			await requestAgentResponsesStream({
+		const streamRaw = await requestAgentResponsesStream({
+			client,
+			modelId: model.modelId,
+			prompt: conversationPrompt,
+			systemPrompt,
+			requestId,
+			observer,
+		});
+		const primaryResult = ensureFileEdits(streamRaw, intentPrompt);
+		await appendPermosaAgentDebugLog({
+			phase: 'responses-api-stream',
+			requestId,
+			...debugMeta,
+			systemPrompt,
+			userPrompt: conversationPrompt,
+			result: primaryResult,
+		});
+
+		const retryDirectives = collectRetryDirectivesForMissingOutputs(activeToolIds, primaryResult);
+		if (retryDirectives.length > 0) {
+			const retrySystemPrompt = buildSystemPrompt({
+				contextPrompt,
+				tools: agentTools,
+				activeToolIds,
+				extraInstructions: retryDirectives,
+			});
+
+			const retryRaw = await requestAgentCompletion({
 				client,
 				modelId: model.modelId,
 				prompt: conversationPrompt,
-				systemPrompt,
+				systemPrompt: retrySystemPrompt,
+			});
+			const retryResult = ensureFileEdits(retryRaw, intentPrompt);
+			const mergedResult: AgentResult = {
+				...retryResult,
+				toolOutputs: mergeToolOutputsOnRetry(primaryResult.toolOutputs, retryResult.toolOutputs),
+			};
+			await appendPermosaAgentDebugLog({
+				phase: 'chat-completions-retry',
 				requestId,
-				observer,
-			}),
-			prompt,
-		);
-
-		if (fileEditDirective.length > 0 && primaryResult.fileEdits.length === 0) {
-			const retrySystemPrompt = buildSystemPrompt({
-				contextPrompt,
-				agentToolFileEditSafetyNotice,
-				fileEditDirective: [
-					...fileEditDirective,
-					'Your previous response did not include fileEdits.',
-					'Respond again with JSON only and include the required fileEdits.',
-					'If the user asked to create a file without explicit content, use an empty string for content.',
-				],
-				extraInstructions: [],
+				...debugMeta,
+				systemPrompt: retrySystemPrompt,
+				userPrompt: conversationPrompt,
+				result: mergedResult,
 			});
 
-			return ensureFileEdits(
-				await requestAgentCompletion({
-					client,
-					modelId: model.modelId,
-					prompt: conversationPrompt,
-					systemPrompt: retrySystemPrompt,
-				}),
-				prompt,
-			);
+			return mergedResult;
 		}
 
 		return primaryResult;
@@ -122,17 +165,25 @@ export async function executeWorkspacePromptStream(
 		}
 
 		try {
-			return ensureFileEdits(
-				await requestAgentChatCompletionStream({
-					client,
-					modelId: model.modelId,
-					prompt: conversationPrompt,
-					systemPrompt,
-					requestId,
-					observer,
-				}),
-				prompt,
-			);
+			const fallbackRaw = await requestAgentChatCompletionStream({
+				client,
+				modelId: model.modelId,
+				prompt: conversationPrompt,
+				systemPrompt,
+				requestId,
+				observer,
+			});
+			const fallbackResult = ensureFileEdits(fallbackRaw, intentPrompt);
+			await appendPermosaAgentDebugLog({
+				phase: 'chat-completions-fallback',
+				requestId,
+				...debugMeta,
+				systemPrompt,
+				userPrompt: conversationPrompt,
+				result: fallbackResult,
+			});
+
+			return fallbackResult;
 		} catch (chatError) {
 			await emitStreamEvent(observer, {
 				type: 'error',

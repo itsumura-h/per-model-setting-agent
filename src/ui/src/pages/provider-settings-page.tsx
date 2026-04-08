@@ -86,10 +86,6 @@ export function ProviderSettingsPage({
 														<input class={fieldClass} type="password" value={editor.draft.apiKey ?? ''} onInput={(event) => onUpdateProviderDraft({ apiKey: (event.currentTarget as HTMLInputElement).value })} />
 													</label>
 													<label class="grid min-w-0 gap-2">
-														<span>Description</span>
-														<textarea class={fieldClass} rows={3} value={editor.draft.description} onInput={(event) => onUpdateProviderDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
-													</label>
-													<label class="grid min-w-0 gap-2">
 														<span>Headers JSON</span>
 														<textarea class={fieldClass} rows={5} value={editor.headersText} onInput={(event) => onUpdateProviderHeadersText((event.currentTarget as HTMLTextAreaElement).value)} />
 													</label>
@@ -122,8 +118,6 @@ export function ProviderSettingsPage({
 												<span>{preset ? preset.name : 'Custom'}</span>
 												<span>{provider.apiKey?.trim().length ? 'apiKey: set' : 'apiKey: empty'}</span>
 											</div>
-
-											{provider.description ? <p class="m-0 break-words">{provider.description}</p> : null}
 
 											<div class="flex flex-wrap gap-2">
 												<button
@@ -194,10 +188,6 @@ export function ProviderSettingsPage({
 									<label class="grid min-w-0 gap-2">
 										<span>API Key</span>
 										<input class={fieldClass} type="password" value={editor.draft.apiKey ?? ''} onInput={(event) => onUpdateProviderDraft({ apiKey: (event.currentTarget as HTMLInputElement).value })} />
-									</label>
-									<label class="grid min-w-0 gap-2">
-										<span>Description</span>
-										<textarea class={fieldClass} rows={3} value={editor.draft.description} onInput={(event) => onUpdateProviderDraft({ description: (event.currentTarget as HTMLTextAreaElement).value })} />
 									</label>
 									<label class="grid min-w-0 gap-2">
 										<span>Headers JSON</span>
