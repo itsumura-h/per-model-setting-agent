@@ -20,6 +20,7 @@ export type WorkspaceExecutionStreamEvent =
 			type: 'complete';
 			text: string;
 			fileEdits: { relativePath: string; content: string }[];
+			fileReads?: { relativePath: string }[];
 			rawResponse: string;
 			requestId?: string;
 			timestamp: string;

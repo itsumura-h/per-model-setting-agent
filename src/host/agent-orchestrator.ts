@@ -14,7 +14,7 @@ import {
 } from '../core/index';
 import { executeWorkspacePromptStream, formatAgentError, type AgentResult } from './workspace-agent';
 import { collectWorkspaceContext } from './workspace-context';
-import { agentToolFileEditWrite } from './agent-tools/file-edit';
+import { agentToolFileEditWrite, agentToolFileRead } from './agent-tools';
 
 export type ControllerState = Omit<AppState, 'viewMode'>;
 
@@ -27,14 +27,28 @@ export type OrchestrationAccess = {
 export function buildAgentResponseText(
 	result: AgentResult,
 	appliedEdits: Array<{ relativePath: string; absolutePath: string }>,
+	fileReadBlocks?: Array<{ relativePath: string; content: string }>,
 ) {
 	const assistantMessage = result.assistantMessage.trim();
-	if (appliedEdits.length === 0) {
-		return assistantMessage;
+	const parts: string[] = [];
+
+	if (assistantMessage.length > 0) {
+		parts.push(assistantMessage);
 	}
 
-	const editSummary = appliedEdits.map((edit) => `- ${edit.relativePath}`).join('\n');
-	return [assistantMessage, '作成・更新したファイル:', editSummary].filter((value) => value.trim().length > 0).join('\n\n');
+	if (fileReadBlocks && fileReadBlocks.length > 0) {
+		const blocks = fileReadBlocks.map(
+			(read) => `### ${read.relativePath}\n\`\`\`\n${read.content}\n\`\`\``,
+		);
+		parts.push(['読み取ったファイル:', ...blocks].join('\n\n'));
+	}
+
+	if (appliedEdits.length > 0) {
+		const editSummary = appliedEdits.map((edit) => `- ${edit.relativePath}`).join('\n');
+		parts.push(['作成・更新したファイル:', editSummary].join('\n\n'));
+	}
+
+	return parts.filter((value) => value.trim().length > 0).join('\n\n');
 }
 
 export async function runWorkspaceAgent(
@@ -103,8 +117,9 @@ export async function runWorkspaceAgent(
 				},
 			},
 		});
+		const fileReadBlocks = await applyAgentToolFileReads(result);
 		const appliedEdits = await applyAgentToolFileEdits(access, result);
-		const response = buildAgentResponseText(result, appliedEdits);
+		const response = buildAgentResponseText(result, appliedEdits, fileReadBlocks);
 		const successState = createSuccessWorkspaceExecutionState(
 			normalizedSettings,
 			normalizedPrompt,
@@ -147,6 +162,36 @@ export async function runWorkspaceAgent(
 			state: errorState,
 		});
 	}
+}
+
+async function applyAgentToolFileReads(
+	result: AgentResult,
+): Promise<Array<{ relativePath: string; content: string }>> {
+	const workspaceContext = collectWorkspaceContext();
+	if (!workspaceContext.workspacePath.trim() || !result.fileReads?.length) {
+		return [];
+	}
+
+	const blocks: Array<{ relativePath: string; content: string }> = [];
+
+	for (const fileRead of result.fileReads) {
+		const normalizedRelativePath = fileRead.relativePath.trim();
+		try {
+			const read = await agentToolFileRead({
+				workspaceRoot: workspaceContext.workspacePath,
+				relativePath: normalizedRelativePath,
+			});
+			blocks.push({ relativePath: read.relativePath, content: read.content });
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			blocks.push({
+				relativePath: normalizedRelativePath,
+				content: `[読み取りエラー: ${errorMessage}]`,
+			});
+		}
+	}
+
+	return blocks;
 }
 
 async function applyAgentToolFileEdits(access: OrchestrationAccess, result: AgentResult) {

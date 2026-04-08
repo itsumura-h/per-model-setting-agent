@@ -1,5 +1,5 @@
-import { createAgentToolFileEditSafetyNotice } from '../../core/index';
 import type { WorkspaceConversationMessage } from '../../core/index';
+import type { ToolDefinition } from './tools/types';
 
 export function buildConversationPrompt({
 	conversation,
@@ -35,33 +35,38 @@ export function buildConversationPrompt({
 
 export function buildSystemPrompt({
 	contextPrompt,
-	agentToolFileEditSafetyNotice,
-	fileEditDirective,
+	tools,
+	activeToolIds,
 	extraInstructions,
 }: {
 	contextPrompt: string;
-	agentToolFileEditSafetyNotice: ReturnType<typeof createAgentToolFileEditSafetyNotice>;
-	fileEditDirective: string[];
+	tools: ToolDefinition[];
+	activeToolIds: string[];
 	extraInstructions: string[];
 }) {
-	return [
+	const baseInstructions = [
 		'You are a VS Code workspace agent.',
 		'Answer in Japanese unless the user asks for another language.',
 		'Be concise, practical, and explicit about assumptions.',
-		'If you need to edit files, only propose safe workspace-local edits and never touch paths outside the workspace root.',
-		'If the user asks to create or edit files, do not ask for confirmation first.',
-		'Instead, return a single JSON object inside a fenced ```json block with keys assistantMessage and fileEdits.',
-		'fileEdits must be an array of objects shaped like { "relativePath": string, "content": string }.',
-		'If no file edit is needed, answer normally without a JSON block.',
-		...fileEditDirective,
+		'When you need to use tools (file edits and/or file reads), return a single JSON object inside a fenced ```json block.',
+		'The JSON must include assistantMessage (string). Include fileEdits and/or fileReads arrays only when those tools apply.',
+	];
+
+	const toolInstructions = tools.flatMap((tool) => {
+		const lines = [...tool.promptInstructions];
+		if (activeToolIds.includes(tool.id)) {
+			lines.push(...tool.promptDirective);
+		}
+		lines.push(tool.safetyNotice.title);
+		lines.push(...tool.safetyNotice.items.map((item) => `- ${item}`));
+		return lines;
+	});
+
+	return [
+		...baseInstructions,
+		...toolInstructions,
 		...extraInstructions,
-		agentToolFileEditSafetyNotice.title,
-		...agentToolFileEditSafetyNotice.items.map((item) => `- ${item}`),
 		'Workspace context:',
 		contextPrompt,
 	].join('\n');
-}
-
-export function isFileEditRequest(prompt: string) {
-	return /(?:ファイル|作成|編集|書き換え|update|edit|create|write|generate)/i.test(prompt);
 }

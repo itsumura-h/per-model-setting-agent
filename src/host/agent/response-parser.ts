@@ -1,8 +1,9 @@
 import OpenAI from 'openai';
 
-import type { AgentFileEdit, AgentResult } from './types';
+import type { AgentFileEdit, AgentFileRead, AgentResult } from './types';
+import type { ToolDefinition } from './tools/types';
 
-export function parseAgentResult(rawResponse: string): AgentResult {
+export function parseAgentResult(rawResponse: string, tools: ToolDefinition[]): AgentResult {
 	const trimmed = rawResponse.trim();
 	const jsonCandidates = [
 		...extractFencedCodeBlocks(trimmed, 'json'),
@@ -11,11 +12,10 @@ export function parseAgentResult(rawResponse: string): AgentResult {
 	];
 
 	for (const candidate of jsonCandidates) {
-		const parsed = tryParseAgentJson(candidate);
+		const parsed = tryParseAgentJson(candidate, tools, trimmed);
 		if (parsed) {
 			return {
-				assistantMessage: parsed.assistantMessage.trim().length > 0 ? parsed.assistantMessage.trim() : trimmed,
-				fileEdits: parsed.fileEdits,
+				...parsed,
 				rawResponse,
 			};
 		}
@@ -28,7 +28,11 @@ export function parseAgentResult(rawResponse: string): AgentResult {
 	};
 }
 
-function tryParseAgentJson(candidate: string) {
+function tryParseAgentJson(
+	candidate: string,
+	tools: ToolDefinition[],
+	fallbackAssistantText: string,
+): Omit<AgentResult, 'rawResponse'> | undefined {
 	try {
 		const parsed = JSON.parse(candidate) as unknown;
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -42,46 +46,41 @@ function tryParseAgentJson(candidate: string) {
 				: typeof record.message === 'string'
 					? record.message
 					: '';
-		const fileEdits = normalizeAgentFileEdits(record.fileEdits);
 
-		if (assistantMessage.trim().length === 0 && fileEdits.length === 0) {
+		const toolResults: Record<string, unknown[]> = {};
+		let fileEdits: AgentFileEdit[] = [];
+		let fileReads: AgentFileRead[] = [];
+
+		for (const tool of tools) {
+			const results = tool.parseResponse(record);
+			toolResults[tool.id] = results;
+			if (tool.id === 'file-edit') {
+				fileEdits = results as AgentFileEdit[];
+			}
+			if (tool.id === 'file-read') {
+				fileReads = results as AgentFileRead[];
+			}
+		}
+
+		const hasToolPayload =
+			Object.values(toolResults).some((entries) => Array.isArray(entries) && entries.length > 0);
+
+		if (assistantMessage.trim().length === 0 && !hasToolPayload) {
 			return undefined;
 		}
 
+		const resolvedAssistant =
+			assistantMessage.trim().length > 0 ? assistantMessage.trim() : fallbackAssistantText;
+
 		return {
-			assistantMessage,
+			assistantMessage: resolvedAssistant,
 			fileEdits,
+			fileReads: fileReads.length > 0 ? fileReads : undefined,
+			toolResults,
 		};
 	} catch {
 		return undefined;
 	}
-}
-
-function normalizeAgentFileEdits(value: unknown): AgentFileEdit[] {
-	if (!Array.isArray(value)) {
-		return [];
-	}
-
-	return value
-		.map((entry) => {
-			if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-				return undefined;
-			}
-
-			const record = entry as Record<string, unknown>;
-			const relativePath = typeof record.relativePath === 'string' ? record.relativePath.trim() : '';
-			const content = typeof record.content === 'string' ? record.content : '';
-
-			if (!relativePath) {
-				return undefined;
-			}
-
-			return {
-				relativePath,
-				content,
-			};
-		})
-		.filter((entry): entry is AgentFileEdit => Boolean(entry));
 }
 
 function extractFencedCodeBlocks(text: string, language: string) {

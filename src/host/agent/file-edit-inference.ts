@@ -1,8 +1,8 @@
-import { isFileEditRequest } from './prompt-builder';
 import type { AgentFileEdit, AgentResult } from './types';
+import { fileEditTool } from './tools';
 
 export function ensureFileEdits(result: AgentResult, prompt: string): AgentResult {
-	if (result.fileEdits.length > 0 || !isFileEditRequest(prompt)) {
+	if (result.fileEdits.length > 0 || !fileEditTool.matchesRequest(prompt)) {
 		return result;
 	}
 

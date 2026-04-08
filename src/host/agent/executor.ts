@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { createAgentToolFileEditSafetyNotice, getWorkspaceExecutionContext } from '../../core/index';
+import { getWorkspaceExecutionContext } from '../../core/index';
 import type { SettingsConfig, WorkspaceConversationMessage } from '../../core/index';
 import { collectWorkspaceContext, formatWorkspaceContextForPrompt } from '../workspace-context';
 import { createOpenAIClient, initializeOpenAIAgentsRuntime } from './client';
 import { formatAgentError } from './error';
 import { ensureFileEdits } from './file-edit-inference';
-import { buildSystemPrompt, buildConversationPrompt, isFileEditRequest } from './prompt-builder';
+import { buildSystemPrompt, buildConversationPrompt } from './prompt-builder';
 import {
 	emitStreamEvent,
 	requestAgentChatCompletionStream,
@@ -14,7 +14,26 @@ import {
 	requestAgentResponsesStream,
 	shouldFallbackToChatCompletions,
 } from './stream';
+import { agentTools, getActiveToolIds } from './tools';
+import type { AgentResult } from './types';
 import type { AgentStreamObserver } from './types';
+
+function collectRetryDirectivesForMissingOutputs(activeToolIds: string[], primaryResult: AgentResult): string[] {
+	const directives: string[] = [];
+	for (const id of activeToolIds) {
+		const tool = agentTools.find((t) => t.id === id);
+		if (!tool) {
+			continue;
+		}
+		if (id === 'file-edit' && primaryResult.fileEdits.length === 0) {
+			directives.push(...tool.retryDirective);
+		}
+		if (id === 'file-read' && (primaryResult.fileReads?.length ?? 0) === 0) {
+			directives.push(...tool.retryDirective);
+		}
+	}
+	return directives;
+}
 
 export async function executeWorkspacePrompt(settings: SettingsConfig, prompt: string) {
 	return executeWorkspacePromptStream(settings, prompt);
@@ -43,19 +62,12 @@ export async function executeWorkspacePromptStream(
 		conversation: options?.conversation ?? [],
 		prompt,
 	});
-	const agentToolFileEditSafetyNotice = createAgentToolFileEditSafetyNotice();
-	const fileEditDirective = isFileEditRequest(prompt)
-		? [
-				'This request requires file creation or editing.',
-				'Do not ask follow-up questions or confirmation questions.',
-				'Return JSON only in a fenced ```json block.',
-				'Include every file to create or update in fileEdits.',
-		  ]
-		: [];
+	const activeToolIds = getActiveToolIds(prompt);
+	const toolsList = [...agentTools];
 	const systemPrompt = buildSystemPrompt({
 		contextPrompt,
-		agentToolFileEditSafetyNotice,
-		fileEditDirective,
+		tools: toolsList,
+		activeToolIds,
 		extraInstructions: [],
 	});
 	const requestId = randomUUID();
@@ -83,17 +95,13 @@ export async function executeWorkspacePromptStream(
 			prompt,
 		);
 
-		if (fileEditDirective.length > 0 && primaryResult.fileEdits.length === 0) {
+		const retryDirectives = collectRetryDirectivesForMissingOutputs(activeToolIds, primaryResult);
+		if (retryDirectives.length > 0) {
 			const retrySystemPrompt = buildSystemPrompt({
 				contextPrompt,
-				agentToolFileEditSafetyNotice,
-				fileEditDirective: [
-					...fileEditDirective,
-					'Your previous response did not include fileEdits.',
-					'Respond again with JSON only and include the required fileEdits.',
-					'If the user asked to create a file without explicit content, use an empty string for content.',
-				],
-				extraInstructions: [],
+				tools: toolsList,
+				activeToolIds,
+				extraInstructions: retryDirectives,
 			});
 
 			return ensureFileEdits(

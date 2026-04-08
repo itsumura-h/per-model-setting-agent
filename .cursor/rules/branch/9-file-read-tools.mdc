@@ -1,0 +1,288 @@
+---
+description: 9-file-read-toolsブランチでの開発時に読み込む
+alwaysApply: false
+---
+9-file-read-tools: ツール定義の一元化リファクタリング
+===
+
+このブランチで実装することは以下の通りです。
+- AIエージェントが使うツール（file-edit 等）の定義を「ツール単位」に一元化する
+- プロンプト組み立て（prompt-builder）とレスポンス解析（response-parser）の両方から、共通のツール定義モジュールを参照するようにリファクタリングする
+- 将来のツール追加（file-read, terminal-exec, search 等）を容易にする拡張可能な構造にする
+
+## 進捗
+- [x] 現状調査・コード精査
+- [x] 設計書作成
+- [x] `src/host/agent/tools/` ディレクトリ新設、ToolDefinition 型・共通インターフェース定義
+- [x] file-edit ツール定義モジュール作成（`src/host/agent/tools/file-edit-tool.ts`）
+- [x] file-read ツール定義モジュール作成（`src/host/agent/tools/file-read-tool.ts`）
+- [x] prompt-builder を ToolDefinition 配列から動的にシステムプロンプトを組み立てるよう変更
+- [x] response-parser を ToolDefinition のスキーマに従って解析するよう変更
+- [x] executor.ts のツール判定ロジックを ToolDefinition ベースに移行
+- [ ] 既存テストの修正・追加（リポジトリに拡張ホスト向け単体テスト基盤なし。必要なら vitest 等の導入を別タスクとする）
+- [x] 動作確認（`pnpm run _build:extension` でビルド成功）
+
+## 参考資料
+- `src/host/agent/prompt-builder.ts` — 現在のプロンプト組み立て
+- `src/host/agent/response-parser.ts` — 現在のレスポンス解析
+- `src/host/agent/executor.ts` — ツール使用判定・実行フロー
+- `src/host/agent/file-edit-inference.ts` — file-edit の推論補完ロジック
+- `src/host/agent/types.ts` — AgentResult, AgentFileEdit 等の型
+- `src/host/agent-tools/file-edit.ts` — 実際のファイル書き込み処理
+- `src/host/agent-orchestrator.ts` — ツール実行のオーケストレーション
+- `src/core/agent-tool-file-edit-state.ts` — file-edit の安全注意事項・状態管理
+
+## 調査結果・設計まとめ
+
+### 1. 現状の問題点
+
+現在、AIエージェントにツールを使わせるための知識（プロンプトテンプレート、レスポンスフォーマット、解析ロジック）が以下のファイルに分散している。
+
+| 関心事 | 現在の場所 | 問題 |
+|---|---|---|
+| ツールの使い方をAIに教える指示文 | `prompt-builder.ts` の `buildSystemPrompt` にハードコード | ツールが増えるたびに `buildSystemPrompt` の引数と本文が肥大化する |
+| ツールのレスポンスフォーマット | `prompt-builder.ts` に ````json` ブロックの形式指示として埋め込み | レスポンス解析側と二重管理になる |
+| レスポンスの解析 | `response-parser.ts` の `parseAgentResult` に JSON 解析ロジックとして実装 | file-edit 固有の `fileEdits` キーがハードコードされている |
+| ツール使用の判定 | `prompt-builder.ts` の `isFileEditRequest` + `executor.ts` の `fileEditDirective` 条件分岐 | ツールごとに executor に分岐が増える |
+| ツール実行結果の安全注意事項 | `core/agent-tool-file-edit-state.ts` の `createAgentToolFileEditSafetyNotice` | prompt-builder から `core` に依存している |
+| ツールの実行 | `agent-tools/file-edit.ts` + `agent-orchestrator.ts` の `applyAgentToolFileEdits` | 実行ロジックは分離されているが、ツール定義との紐付けがない |
+
+#### 具体的な分散パターン
+
+**prompt-builder.ts** で file-edit ツールに関する以下の知識がハードコードされている：
+- 「JSON object inside a fenced ```json block with keys assistantMessage and fileEdits」というフォーマット指示
+- 「fileEdits must be an array of objects shaped like { "relativePath": string, "content": string }」というスキーマ指示
+- `isFileEditRequest` によるツール使用判定
+- `createAgentToolFileEditSafetyNotice` から取得する安全注意事項
+
+**response-parser.ts** で file-edit ツールに関する以下の知識がハードコードされている：
+- `fileEdits` キーの存在チェック
+- `normalizeAgentFileEdits` による `{ relativePath, content }` 構造の検証
+- `assistantMessage` / `message` キーの抽出
+
+**executor.ts** で file-edit ツールに関する以下の知識がハードコードされている：
+- `isFileEditRequest(prompt)` によるツール使用判定
+- `fileEditDirective` 配列の条件分岐
+- file-edit が返らなかった場合のリトライロジック
+
+→ **file-read やその他のツールを追加するたびに、これら3ファイルすべてを修正する必要がある。**
+
+### 2. 設計方針
+
+#### 2.1 ToolDefinition インターフェース
+
+ツールごとに以下の情報を一つのモジュールにまとめる。
+
+```ts
+type ToolDefinition<TResult = unknown> = {
+  /** ツールの一意識別子（例: "file-edit", "file-read"） */
+  id: string;
+
+  /** ツールの表示名 */
+  name: string;
+
+  /** AI に渡すシステムプロンプト断片（ツールの使い方の説明） */
+  promptInstructions: string[];
+
+  /** AI にツール使用を強制するときの追加指示 */
+  promptDirective: string[];
+
+  /** AI がこのツールを使うリクエストかどうかを判定する */
+  matchesRequest: (prompt: string) => boolean;
+
+  /** 安全注意事項（プロンプトに埋め込む） */
+  safetyNotice: {
+    title: string;
+    items: string[];
+  };
+
+  /** AI のレスポンス JSON からこのツールの実行指示を抽出する */
+  parseResponse: (parsed: Record<string, unknown>) => TResult[];
+
+  /** レスポンスが不足していた場合のリトライ用追加指示 */
+  retryDirective: string[];
+};
+```
+
+#### 2.2 ディレクトリ構成
+
+```
+src/host/agent/
+  tools/
+    index.ts              # 全ツール定義をまとめてエクスポート
+    types.ts              # ToolDefinition 型
+    file-edit-tool.ts     # file-edit ツール定義
+    file-read-tool.ts     # file-read ツール定義（新規追加）
+  prompt-builder.ts       # ToolDefinition[] からプロンプトを動的生成
+  response-parser.ts      # ToolDefinition[] を使ってレスポンスを解析
+  executor.ts             # ToolDefinition[] を使ってツール判定・リトライ
+  ...
+```
+
+既存の `src/host/agent-tools/file-edit.ts`（実際のファイルI/O）はそのまま残す。ツール定義モジュールは「AIに何を教えるか」と「レスポンスをどう解析するか」のみを扱い、実際の実行は既存の `agent-tools/` に委譲する。
+
+#### 2.3 各ファイルの変更方針
+
+##### `src/host/agent/tools/types.ts`（新規）
+
+`ToolDefinition` 型と `ToolRegistry` ユーティリティを定義する。
+
+##### `src/host/agent/tools/file-edit-tool.ts`（新規）
+
+現在 prompt-builder.ts, response-parser.ts, executor.ts, core/agent-tool-file-edit-state.ts に分散しているfile-edit関連の知識を集約する。
+
+具体的に移動する知識：
+- `prompt-builder.ts` の「JSON block with keys assistantMessage and fileEdits」指示 → `promptInstructions`
+- `prompt-builder.ts` の `isFileEditRequest` → `matchesRequest`
+- `executor.ts` の `fileEditDirective` → `promptDirective`
+- `executor.ts` のリトライ時追加指示 → `retryDirective`
+- `core/agent-tool-file-edit-state.ts` の `createAgentToolFileEditSafetyNotice` → `safetyNotice`
+- `response-parser.ts` の `normalizeAgentFileEdits` → `parseResponse`
+
+##### `src/host/agent/tools/file-read-tool.ts`（新規）
+
+file-read ツールの定義を新規作成する。promptInstructions にファイル読み取りの指示を記述し、parseResponse でレスポンスから読み取り指示を抽出する。
+
+##### `src/host/agent/tools/index.ts`（新規）
+
+```ts
+import { fileEditTool } from './file-edit-tool';
+import { fileReadTool } from './file-read-tool';
+
+export const agentTools = [fileEditTool, fileReadTool] as const;
+
+export { fileEditTool, fileReadTool };
+export type { ToolDefinition } from './types';
+```
+
+##### `src/host/agent/prompt-builder.ts`（変更）
+
+**Before:**
+- `buildSystemPrompt` が `agentToolFileEditSafetyNotice`, `fileEditDirective`, `extraInstructions` を引数に取り、file-edit 固有の指示をハードコードしている
+
+**After:**
+- `buildSystemPrompt` が `ToolDefinition[]` を受け取り、各ツールの `promptInstructions` と `safetyNotice` を自動的に展開する
+- `isFileEditRequest` は削除し、各ツールの `matchesRequest` に委譲
+
+```ts
+export function buildSystemPrompt({
+  contextPrompt,
+  tools,
+  activeToolIds,
+  extraInstructions,
+}: {
+  contextPrompt: string;
+  tools: ToolDefinition[];
+  activeToolIds: string[];  // prompt に基づいて有効化されたツール
+  extraInstructions: string[];
+}) {
+  const baseInstructions = [
+    'You are a VS Code workspace agent.',
+    // ... 基本指示
+  ];
+
+  const toolInstructions = tools.flatMap(tool => {
+    const lines = [...tool.promptInstructions];
+    if (activeToolIds.includes(tool.id)) {
+      lines.push(...tool.promptDirective);
+    }
+    lines.push(tool.safetyNotice.title);
+    lines.push(...tool.safetyNotice.items.map(item => `- ${item}`));
+    return lines;
+  });
+
+  return [
+    ...baseInstructions,
+    ...toolInstructions,
+    ...extraInstructions,
+    'Workspace context:',
+    contextPrompt,
+  ].join('\n');
+}
+```
+
+##### `src/host/agent/response-parser.ts`（変更）
+
+**Before:**
+- `parseAgentResult` が `fileEdits` キーのみを決め打ちで抽出
+
+**After:**
+- `parseAgentResult` が `ToolDefinition[]` を受け取り、各ツールの `parseResponse` を呼び出して結果を `AgentResult` に格納
+- `AgentResult` 型を拡張して、ツールごとの結果を汎用的に保持可能にする
+
+```ts
+export function parseAgentResult(
+  rawResponse: string,
+  tools: ToolDefinition[],
+): AgentResult {
+  // ... JSON 抽出ロジック（既存）
+  // 各ツールの parseResponse を呼び出す
+  for (const tool of tools) {
+    const toolResults = tool.parseResponse(parsed);
+    // AgentResult に格納
+  }
+}
+```
+
+##### `src/host/agent/executor.ts`（変更）
+
+**Before:**
+- `isFileEditRequest` と `fileEditDirective` による file-edit 固有の分岐
+- リトライロジックが file-edit にハードコード
+
+**After:**
+- `agentTools` を import して `matchesRequest` でアクティブなツールを判定
+- リトライ条件を汎用化
+
+```ts
+import { agentTools } from './tools';
+
+// ツール判定
+const activeToolIds = agentTools
+  .filter(tool => tool.matchesRequest(prompt))
+  .map(tool => tool.id);
+
+const systemPrompt = buildSystemPrompt({
+  contextPrompt,
+  tools: agentTools,
+  activeToolIds,
+  extraInstructions: [],
+});
+```
+
+##### `src/host/agent/types.ts`（変更）
+
+`AgentResult` を拡張して、将来のツール結果を汎用的に保持可能にする。
+
+```ts
+export type AgentResult = {
+  assistantMessage: string;
+  fileEdits: AgentFileEdit[];       // 後方互換のために残す
+  fileReads?: AgentFileRead[];      // 新規
+  toolResults?: Record<string, unknown[]>;  // 汎用
+  rawResponse: string;
+};
+```
+
+### 3. 移行戦略
+
+#### Phase 1: ToolDefinition 基盤の構築
+1. `src/host/agent/tools/types.ts` に `ToolDefinition` 型を定義
+2. `src/host/agent/tools/file-edit-tool.ts` に file-edit の知識を集約
+3. `src/host/agent/tools/index.ts` でエクスポート
+
+#### Phase 2: 利用側の移行
+4. `prompt-builder.ts` を `ToolDefinition[]` ベースに変更
+5. `response-parser.ts` を `ToolDefinition[]` ベースに変更
+6. `executor.ts` の条件分岐を `ToolDefinition` ベースに変更
+
+#### Phase 3: file-read ツールの追加
+7. `src/host/agent/tools/file-read-tool.ts` を新規作成
+8. `agentTools` 配列に追加するだけで、prompt-builder / response-parser / executor は変更不要であることを確認
+
+### 4. 設計上の注意点
+
+- **後方互換**: `AgentResult.fileEdits` は既存のオーケストレーター・UIが参照しているため、フィールドとして残す。新しいツール結果は `toolResults` に格納しつつ、file-edit は `fileEdits` にもコピーする。
+- **core 層への影響最小化**: `createAgentToolFileEditSafetyNotice` は `core` にあるが、ツール定義に移した後も `core` からは削除せず、ツール定義内で定義した値を正とし `core` 側は互換性のためにラップする。
+- **実行層との分離**: `ToolDefinition` は「AIに何を教えるか」「AIのレスポンスをどう解析するか」のみを扱う。実際のファイルI/O は `agent-tools/`（`file-edit` / 追加の `file-read`）に委ねる。オーケストレーションは `applyAgentToolFileEdits` に加え、`result.fileReads` に基づく `applyAgentToolFileReads` で読み取り結果を応答テキストへ反映する。
+- **テスト**: file-edit-tool の `parseResponse` は既存の `normalizeAgentFileEdits` のテストケースをそのまま流用できる。prompt 生成のスナップショットテストを追加して、ツール追加時にプロンプトが正しく変化することを検証する。

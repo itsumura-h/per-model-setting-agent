@@ -3,9 +3,15 @@ export type AgentFileEdit = {
 	content: string;
 };
 
+export type AgentFileRead = {
+	relativePath: string;
+};
+
 export type AgentResult = {
 	assistantMessage: string;
 	fileEdits: AgentFileEdit[];
+	fileReads?: AgentFileRead[];
+	toolResults?: Record<string, unknown[]>;
 	rawResponse: string;
 };
 
@@ -29,6 +35,7 @@ export type AgentStreamEvent =
 			type: 'complete';
 			text: string;
 			fileEdits: AgentFileEdit[];
+			fileReads?: AgentFileRead[];
 			rawResponse: string;
 			requestId?: string;
 			timestamp: string;
